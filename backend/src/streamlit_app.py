@@ -212,7 +212,7 @@ def infer(frame):
 
 # Auto-refresh to create video effect
 import time
-while st.session_state is not None:
+while st.session_state.video_capture is not None:
     time.sleep(0.03)  # ~30 FPS
     ret, frame = st.session_state.video_capture.read()
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
