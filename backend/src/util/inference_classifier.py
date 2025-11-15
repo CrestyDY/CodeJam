@@ -20,8 +20,10 @@ def run_sign_language_classifier(config_file='asl.json'):
     model_dict = pickle.load(open(os.path.join(os.path.dirname(__file__), 'model.p'), 'rb'))
     model = model_dict['model']
     
-    # Setup camera
+    # Setup camera with higher resolution
     cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     
     # Setup MediaPipe
     mp_hands = mp.solutions.hands
@@ -36,6 +38,11 @@ def run_sign_language_classifier(config_file='asl.json'):
     character_start_time = None
     HOLD_DURATION = 1.5  # seconds - adjust this value to change how long to hold
     
+    # Sentence selection state
+    sentence_options = []  # List of 3 sentences from LLM
+    selected_sentence = ""  # The sentence chosen by the user
+    selection_mode = False  # Whether we're in sentence selection mode
+    
     # Sentence completion tracking
     sentence_completion_status = {}  # Initialize as empty dict
     last_checked_input = ""  # Track what we last checked
@@ -49,13 +56,27 @@ def run_sign_language_classifier(config_file='asl.json'):
         # Convert string keys to integers and add space after each word
         labels_dict = {int(k): v + ' ' for k, v in asl_config.items()}
         print(f"Loaded {len(labels_dict)} sign language gestures from {config_file}")
+        
+        # Find indices for selection gestures dynamically
+        select_indices = {}
+        for key, value in labels_dict.items():
+            if value.strip() == "Select 1":
+                select_indices[1] = key
+            elif value.strip() == "Select 2":
+                select_indices[2] = key
+            elif value.strip() == "Select 3":
+                select_indices[3] = key
+        print(f"Selection gestures mapped: {select_indices}")
     
     def run_llm_in_background(user_input):
         """Run the LLM call in a separate thread to avoid blocking the video feed"""
         nonlocal sentence_completion_status, last_checked_input, last_spoken_input, letters_detected
+        nonlocal sentence_options, selection_mode, selected_sentence
         
         def thread_target():
             nonlocal sentence_completion_status, last_checked_input, last_spoken_input, letters_detected
+            nonlocal sentence_options, selection_mode, selected_sentence
+            
             try:
                 # ALWAYS get response interpretations for every word added
                 response = get_response(user_input)
@@ -65,11 +86,26 @@ def run_sign_language_classifier(config_file='asl.json'):
                     print(f"{'='*60}")
                     print(response)
                     print(f"{'='*60}\n")
+                    
+                    # Parse JSON response for sentence options
+                    try:
+                        response_data = json.loads(response)
+                        if 'sentences' in response_data and isinstance(response_data['sentences'], list):
+                            sentence_options = response_data['sentences'][:3]  # Take up to 3 sentences
+                            selection_mode = True  # Enable selection mode
+                            selected_sentence = ""  # Reset selected sentence
+                            print(f"\n✨ {len(sentence_options)} sentence options available!")
+                            print("   - Use 'Select 1/2/3' gestures to choose a sentence")
+                            print("   - OR add more words to make the sentence more complex\n")
+                    except json.JSONDecodeError as je:
+                        print(f"Warning: Could not parse sentence options from JSON response: {je}")
+                        sentence_options = []
+                        selection_mode = False
                 
                 # Also check if sentence is complete
                 completion_response = check_if_sentence_complete(user_input)
                 
-                # Parse the JSON response
+                # Parse the completion JSON response
                 try:
                     completion_data = json.loads(completion_response)
                     
@@ -88,7 +124,10 @@ def run_sign_language_classifier(config_file='asl.json'):
                     if completion_data.get('is_complete', False):
                         # Speak the text only if we haven't spoken this exact input before
                         if user_input != last_spoken_input:
-                            speak_text(user_input)
+                            # Speak in a separate thread to avoid any blocking
+                            def speak_completion():
+                                speak_text(user_input)
+                            threading.Thread(target=speak_completion, daemon=True).start()
                             last_spoken_input = user_input
                         
                         # Clear the buffer to allow starting a new sentence
@@ -105,6 +144,11 @@ def run_sign_language_classifier(config_file='asl.json'):
         
         thread = threading.Thread(target=thread_target, daemon=True)
         thread.start()
+    
+    # Setup OpenCV window
+    window_name = 'Sign Language to Text Classifier'
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1280, 720)
     
     # Main loop
     while True:
@@ -172,12 +216,52 @@ def run_sign_language_classifier(config_file='asl.json'):
                     if character_start_time is not None:
                         elapsed_time = time.time() - character_start_time
                         if elapsed_time >= HOLD_DURATION and current_character != previous_detected:
-                            # Character held long enough and is different from last added
-                            letters_detected += current_character
                             previous_detected = current_character
-                            print(f"Added '{current_character}' to detected letters: {letters_detected}")
-                            # Run the LLM call in background thread so video doesn't freeze
-                            run_llm_in_background(letters_detected)
+                            
+                            # Check if we're in selection mode
+                            if selection_mode and sentence_options:
+                                # Check if it's a selection gesture
+                                prediction_id = int(prediction[0])
+                                
+                                # Check if this is a selection gesture
+                                is_selection = False
+                                for select_num, select_id in select_indices.items():
+                                    if prediction_id == select_id:
+                                        selection_index = select_num - 1  # 1->0, 2->1, 3->2
+                                        if selection_index < len(sentence_options):
+                                            selected_sentence = sentence_options[selection_index]
+                                            print(f"\n{'='*60}")
+                                            print(f"✅ Selected option {select_num}: {selected_sentence}")
+                                            print(f"{'='*60}\n")
+                                            
+                                            # Speak the selected sentence in background thread
+                                            def speak_in_background():
+                                                speak_text(selected_sentence)
+                                            threading.Thread(target=speak_in_background, daemon=True).start()
+                                            
+                                            # Exit selection mode and reset detected letters
+                                            selection_mode = False
+                                            sentence_options = []
+                                            letters_detected = ""  # Reset for next gesture sequence
+                                            print("📝 Detected letters reset. Ready for new gesture sequence.\n")
+                                            is_selection = True
+                                            break
+                                
+                                # If not a selection gesture, treat as normal word in selection mode
+                                if not is_selection:
+                                    letters_detected += current_character
+                                    print(f"Added '{current_character}' to detected letters: {letters_detected}")
+                                    # Exit selection mode since user is adding more words
+                                    selection_mode = False
+                                    sentence_options = []
+                                    # Run LLM call with new accumulated text
+                                    run_llm_in_background(letters_detected)
+                            else:
+                                # Normal mode: add character to detected letters
+                                letters_detected += current_character
+                                print(f"Added '{current_character}' to detected letters: {letters_detected}")
+                                # Run the LLM call in background thread so video doesn't freeze
+                                run_llm_in_background(letters_detected)
                 
                 # Display the predicted character
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 4)
@@ -238,8 +322,32 @@ def run_sign_language_classifier(config_file='asl.json'):
                     reason = reason[:47] + "..."
                 cv2.putText(frame, f"{reason}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
                             cv2.LINE_AA)
+        
+        # Display sentence options if in selection mode
+        if selection_mode and sentence_options:
+            # Add a semi-transparent overlay for better readability
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (10, H - 250), (W - 10, H - 10), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+            
+            # Display title
+            cv2.putText(frame, "SELECT A SENTENCE (or add more words):", (20, H - 220), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
+            
+            # Display each sentence option
+            for idx, sentence in enumerate(sentence_options, 1):
+                y_pos = H - 220 + (idx * 60)
+                # Truncate sentence if too long
+                display_text = sentence if len(sentence) <= 60 else sentence[:57] + "..."
+                cv2.putText(frame, f"[{idx}] {display_text}", (20, y_pos), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
+        
+        # Display selected sentence if available
+        if selected_sentence:
+            cv2.putText(frame, f"Selected: {selected_sentence[:50]}", (10, H - 10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
 
-        cv2.imshow('frame', frame)
+        cv2.imshow(window_name, frame)
         cv2.waitKey(1)
 
     cap.release()
