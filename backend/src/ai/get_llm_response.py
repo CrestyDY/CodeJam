@@ -4,7 +4,8 @@ import threading
 from concurrent.futures import Future
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-from src.ai.prompts import prompt1
+from src.ai.prompts import prompt1, check_sentence_complete
+from pathlib import Path
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "..", "etc", ".env"))
@@ -137,3 +138,57 @@ def get_response(user_input):
     response = get_llm_response(prompt_text)
     return response
 
+def check_if_sentence_complete(user_input):
+    """Check if the current input looks like a complete sentence using LLM"""
+    prompt_text = check_sentence_complete(user_input)
+    response = get_llm_response(prompt_text)
+    return response
+
+async def _speak_text_async(text: str):
+    """Async function to speak text using OpenAI TTS"""
+    global _client
+
+    if _client is None:
+        _client = AsyncOpenAI(api_key=API_KEY)
+
+    try:
+        speech_file_path = Path(__file__).parent / "speech.mp3"
+
+        async with _client.audio.speech.with_streaming_response.create(
+            model="tts-1",
+            voice="nova",
+            input=text,
+        ) as response:
+            await response.stream_to_file(speech_file_path)
+
+        # Play the audio file using system command
+        import platform
+        import subprocess
+
+        system = platform.system()
+        if system == "Darwin":  # macOS
+            subprocess.Popen(["afplay", str(speech_file_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif system == "Linux":
+            # Try different audio players
+            for player in ["mpg123", "ffplay", "aplay"]:
+                try:
+                    subprocess.Popen([player, str(speech_file_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    break
+                except FileNotFoundError:
+                    continue
+        elif system == "Windows":
+            subprocess.Popen(["start", str(speech_file_path)], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        print(f"🔊 Speaking: {text}")
+
+    except Exception as e:
+        print(f"Error in text-to-speech: {e}")
+
+def speak_text(text: str):
+    """Synchronous wrapper to speak text using OpenAI TTS"""
+    loop = get_event_loop()
+    future = asyncio.run_coroutine_threadsafe(_speak_text_async(text), loop)
+    try:
+        future.result(timeout=10)  # 10 second timeout for TTS
+    except Exception as e:
+        print(f"Error in speak_text: {e}")
