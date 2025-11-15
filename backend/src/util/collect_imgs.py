@@ -52,7 +52,7 @@ except FileNotFoundError:
 dataset_size = args.dataset_size
 
 # Setup camera
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(args.camera)
 
 # ========== MEDIAPIPE SETUP ==========
 mp_hands = mp.solutions.hands
@@ -84,7 +84,7 @@ print(f"Saving images to: {output_root}")
 
 # ========== DATA COLLECTION ==========
 
-for j in range(number_of_classes):
+for j in range(35, number_of_classes):
     class_dir = os.path.join(output_root, str(j))
     class_label = asl_config.get(str(j), f"Class {j}")
 
