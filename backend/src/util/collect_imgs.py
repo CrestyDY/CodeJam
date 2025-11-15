@@ -13,6 +13,8 @@ parser.add_argument('--config', type=str, default=None,
                     help='Path to custom config file (default: asl_one_hand.json for one, asl.json for two)')
 parser.add_argument('--camera', type=int, default=1,
                     help='Camera index (default: 1)')
+parser.add_argument('--start-at', type=int, default=0,
+                    help='Class index to start at (default: 0)')
 parser.add_argument('--dataset-size', type=int, default=100,
                     help='Number of images to collect per class (default: 100)')
 
@@ -25,6 +27,7 @@ BASE_DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
 MODE = args.mode
 REQUIRED_HANDS = 1 if MODE == 'one' else 2
 MODE_NAME = "ONE-HAND" if MODE == 'one' else "TWO-HAND"
+START_AT = args.start_at
 
 # Set default config based on mode
 if args.config:
@@ -84,7 +87,7 @@ print(f"Saving images to: {output_root}")
 
 # ========== DATA COLLECTION ==========
 
-for j in range(35, number_of_classes):
+for j in range(START_AT, number_of_classes):
     class_dir = os.path.join(output_root, str(j))
     class_label = asl_config.get(str(j), f"Class {j}")
 

@@ -26,7 +26,7 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
     model_two = model_two_dict['model']  # Two-hand model (84 features)
     
     # Setup camera with higher resolution
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(4)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     
