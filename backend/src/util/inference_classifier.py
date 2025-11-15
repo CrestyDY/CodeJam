@@ -3,6 +3,8 @@ import time
 import cv2
 import mediapipe as mp
 import numpy as np
+import threading
+from src.ai.get_llm_response import get_response
 
 model_dict = pickle.load(open('./model.p', 'rb'))
 model = model_dict['model']
@@ -21,7 +23,25 @@ current_character = ""
 character_start_time = None
 HOLD_DURATION = 1.5  # seconds - adjust this value to change how long to hold
 
-labels_dict = {0: 'A', 1: 'B', 2: 'C', 3: 'D', 4: 'E'}
+labels_dict = {0: 'HI ', 1: 'MOM ', 2: 'HELLO ', 3: 'WORLD ', 4: ':) '}
+
+def run_llm_in_background(user_input):
+    """Run the LLM call in a separate thread to avoid blocking the video feed"""
+    def thread_target():
+        try:
+            # get_response is now synchronous but uses a persistent event loop internally
+            response = get_response(user_input)
+            if response:
+                print(f"\n{'='*60}")
+                print(f"📝 LLM Response for '{user_input}':")
+                print(f"{'='*60}")
+                print(response)
+                print(f"{'='*60}\n")
+        except Exception as e:
+            print(f"\n❌ Error getting LLM response: {e}\n")
+    
+    thread = threading.Thread(target=thread_target, daemon=True)
+    thread.start()
 
 while True:
     ret, frame = cap.read()
@@ -92,6 +112,8 @@ while True:
                         letters_detected += current_character
                         previous_detected = current_character
                         print(f"Added '{current_character}' to detected letters: {letters_detected}")
+                        # Run the LLM call in background thread so video doesn't freeze
+                        run_llm_in_background(letters_detected)
             
             # Display the predicted character
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 4)
