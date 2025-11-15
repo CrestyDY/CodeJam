@@ -7,8 +7,8 @@ import numpy as np
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(SCRIPT_DIR, 'data')
-MODEL_PATH = os.path.join(SCRIPT_DIR, "models")
+DATA_PATH = os.path.join(SCRIPT_DIR, '..', 'data')  # Shared data directory
+MODEL_PATH = os.path.join(SCRIPT_DIR, "..", "models")  # Shared models directory
 
 data_dict1 = pickle.load(open(os.path.join(DATA_PATH, 'one_hand_data.pickle'), 'rb'))
 data_dict2 = pickle.load(open(os.path.join(DATA_PATH, 'two_hands_data.pickle'), 'rb'))

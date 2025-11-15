@@ -1,0 +1,111 @@
+{
+  "motion_signs": {
+    "thank_you": {
+      "id": 0,
+      "hands": 1
+    },
+    "hello": {
+      "id": 1,
+      "hands": 1
+    },
+    "sorry": {
+      "id": 2,
+      "hands": 1,
+      "description": "Circular motion on chest with fist"
+    },
+    "please": {
+      "id": 3,
+      "hands": 1,
+      "description": "Circular motion on chest with open hand"
+    },
+    "help": {
+      "id": 4,
+      "hands": 2,
+      "description": "One hand lifts the other hand upward"
+    },
+    "fine": {
+      "id": 5,
+      "hands": 1,
+      "description": "Hand moves from chest outward with thumb and fingers extended"
+    },
+    "yes": {
+      "id": 6,
+      "hands": 1,
+      "description": "Fist nods up and down"
+    },
+    "no": {
+      "id": 7,
+      "hands": 1,
+      "description": "Index and middle finger close like scissors"
+    },
+    "good": {
+      "id": 8,
+      "hands": 1,
+      "description": "Hand moves from mouth downward and outward"
+    },
+    "bad": {
+      "id": 9,
+      "hands": 1,
+      "description": "Hand moves from mouth downward and flips"
+    }
+  },
+  "static_signs_one_hand": {
+    "HI": {
+      "id": 0,
+      "description": "Static hand pose for 'hi'",
+      "type": "word"
+    },
+    "MY": {
+      "id": 1,
+      "description": "Static hand pose for 'my'",
+      "type": "word"
+    },
+    "H": {
+      "id": 2,
+      "description": "Letter H",
+      "type": "letter"
+    },
+    "E": {
+      "id": 3,
+      "description": "Letter E",
+      "type": "letter"
+    }
+  },
+  "static_signs_two_hands": {
+    "NAME": {
+      "id": 0,
+      "description": "Two hands forming 'name' sign",
+      "type": "word"
+    },
+    "interpreter": {
+      "id": 1,
+      "description": "Two hands rotating for interpreter",
+      "type": "word"
+    },
+    "world": {
+      "id": 2,
+      "description": "Two hands forming globe shape",
+      "type": "word"
+    },
+    "L": {
+      "id": 3,
+      "description": "Letter L with both hands",
+      "type": "letter"
+    }
+  },
+  "training_parameters": {
+    "sequence_length": 30,
+    "lstm_units": 64,
+    "gru_units": 64,
+    "batch_size": 32,
+    "epochs": 100,
+    "learning_rate": 0.001,
+    "dropout": 0.2,
+    "confidence_threshold": 0.7
+  },
+  "notes": {
+    "sequence_length": "Number of frames to capture per sign (30 frames ≈ 1 second at 30fps)",
+    "hands": "Number of hands required for the sign (1 or 2)"
+  }
+}
+

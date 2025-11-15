@@ -21,7 +21,7 @@ parser.add_argument('--dataset-size', type=int, default=100,
 args = parser.parse_args()
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
+BASE_DATA_DIR = os.path.join(SCRIPT_DIR, '..', 'data')  # Shared data directory
 
 # Determine mode and config
 MODE = args.mode
@@ -34,9 +34,9 @@ if args.config:
     CONFIG_PATH = args.config
 else:
     if MODE == 'one':
-        CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'asl_one_hand.json')
+        CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'asl_one_hand.json')
     else:
-        CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'asl.json')
+        CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'asl.json')
 
 if not os.path.exists(BASE_DATA_DIR):
     os.makedirs(BASE_DATA_DIR)

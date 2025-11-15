@@ -5,8 +5,8 @@ import mediapipe as mp
 import argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR = os.path.join(SCRIPT_DIR, 'data')
-PICKLE_PATH = os.path.join(SCRIPT_DIR, 'data.pickle')
+BASE_DIR = os.path.join(SCRIPT_DIR, '..', 'data')  # Shared data directory
+PICKLE_PATH = os.path.join(SCRIPT_DIR, '..', 'data.pickle')  # Shared data directory
 
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(

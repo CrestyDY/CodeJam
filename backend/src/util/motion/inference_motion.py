@@ -1,0 +1,306 @@
+"""
+Real-time inference for motion-based sign language recognition.
+"""
+import cv2
+import numpy as np
+import mediapipe as mp
+import pickle
+from collections import deque
+from tensorflow import keras
+
+
+class MotionSignDetector:
+    """
+    Real-time motion-based sign language detector.
+    Accumulates frames and runs inference when enough frames are collected.
+    """
+    
+    def __init__(self, model_path, metadata_path, sequence_length=30, confidence_threshold=0.7):
+        """
+        Initialize motion detector.
+        
+        Args:
+            model_path: Path to trained Keras model (.h5)
+            metadata_path: Path to metadata pickle file
+            sequence_length: Number of frames to accumulate
+            confidence_threshold: Minimum confidence for prediction
+        """
+        # Load model
+        self.model = keras.models.load_model(model_path)
+        
+        # Load metadata
+        with open(metadata_path, 'rb') as f:
+            metadata = pickle.load(f)
+        
+        self.label_encoder = metadata['label_encoder']
+        self.classes = metadata['classes']
+        self.sequence_length = sequence_length
+        self.feature_dim = metadata['feature_dim']
+        self.confidence_threshold = confidence_threshold
+        
+        # Determine number of hands from feature dimension
+        self.num_hands = 1 if self.feature_dim == 42 else 2
+        
+        # Frame buffer
+        self.frame_buffer = deque(maxlen=sequence_length)
+        
+        # MediaPipe setup
+        self.mp_hands = mp.solutions.hands
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_drawing_styles = mp.solutions.drawing_styles
+        
+        self.hands = self.mp_hands.Hands(
+            static_image_mode=False,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+            max_num_hands=2
+        )
+        
+        print(f"Motion detector initialized:")
+        print(f"  Model: {model_path}")
+        print(f"  Classes: {self.classes}")
+        print(f"  Sequence length: {self.sequence_length}")
+        print(f"  Expected hands: {self.num_hands}")
+        print(f"  Confidence threshold: {self.confidence_threshold}")
+    
+    def extract_hand_features(self, hand_landmarks):
+        """Extract normalized features from a single hand."""
+        data_aux = []
+        x_ = []
+        y_ = []
+        
+        for lm in hand_landmarks.landmark:
+            x_.append(lm.x)
+            y_.append(lm.y)
+        
+        min_x = min(x_)
+        min_y = min(y_)
+        
+        for lm in hand_landmarks.landmark:
+            data_aux.append(lm.x - min_x)
+            data_aux.append(lm.y - min_y)
+        
+        return data_aux
+    
+    def process_frame(self, frame):
+        """
+        Process a single frame and return features if hands detected.
+        
+        Returns:
+            features: List of features or None if hands not detected properly
+        """
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.hands.process(frame_rgb)
+        
+        if not results.multi_hand_landmarks:
+            return None
+        
+        # Check if we have the expected number of hands
+        if len(results.multi_hand_landmarks) != self.num_hands:
+            return None
+        
+        # Extract features
+        if self.num_hands == 1:
+            features = self.extract_hand_features(results.multi_hand_landmarks[0])
+        else:  # num_hands == 2
+            features = []
+            for hand_landmarks in results.multi_hand_landmarks:
+                features.extend(self.extract_hand_features(hand_landmarks))
+        
+        if len(features) != self.feature_dim:
+            return None
+        
+        return features, results
+    
+    def add_frame(self, frame):
+        """
+        Add a frame to the buffer and return prediction if buffer is full.
+        
+        Returns:
+            prediction: (class_name, confidence) or None
+        """
+        result = self.process_frame(frame)
+        
+        if result is None:
+            return None, None
+        
+        features, hand_results = result
+        self.frame_buffer.append(features)
+        
+        # Only predict when buffer is full
+        if len(self.frame_buffer) < self.sequence_length:
+            return None, hand_results
+        
+        # Make prediction
+        sequence = np.array([list(self.frame_buffer)])  # Shape: (1, seq_len, features)
+        predictions = self.model.predict(sequence, verbose=0)[0]
+        
+        predicted_class_idx = np.argmax(predictions)
+        confidence = predictions[predicted_class_idx]
+        
+        if confidence >= self.confidence_threshold:
+            predicted_class = self.classes[predicted_class_idx]
+            return (predicted_class, confidence), hand_results
+        
+        return None, hand_results
+    
+    def reset_buffer(self):
+        """Clear the frame buffer."""
+        self.frame_buffer.clear()
+    
+    def get_buffer_status(self):
+        """Get current buffer fill status."""
+        return len(self.frame_buffer), self.sequence_length
+
+
+def run_motion_detection(model_path, metadata_path, camera_index=0):
+    """
+    Run real-time motion detection from webcam.
+    
+    Args:
+        model_path: Path to trained model
+        metadata_path: Path to metadata
+        camera_index: Camera index to use
+    """
+    detector = MotionSignDetector(model_path, metadata_path)
+    
+    cap = cv2.VideoCapture(camera_index)
+    
+    detected_signs = []
+    last_prediction = None
+    last_prediction_time = 0
+    prediction_cooldown = 2.0  # seconds
+    
+    mp_hands = mp.solutions.hands
+    mp_drawing = mp.solutions.drawing_utils
+    mp_drawing_styles = mp.solutions.drawing_styles
+    
+    print("\n=== Motion Sign Detection ===")
+    print("Press 'q' to quit")
+    print("Press 'r' to reset buffer")
+    print("Press 'c' to clear detected signs")
+    print("=" * 50)
+    
+    import time
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        frame = cv2.flip(frame, 1)
+        current_time = time.time()
+        
+        # Process frame
+        prediction, hand_results = detector.add_frame(frame)
+        
+        # Draw hand landmarks if detected
+        if hand_results and hand_results.multi_hand_landmarks:
+            for hand_landmarks in hand_results.multi_hand_landmarks:
+                mp_drawing.draw_landmarks(
+                    frame,
+                    hand_landmarks,
+                    mp_hands.HAND_CONNECTIONS,
+                    mp_drawing_styles.get_default_hand_landmarks_style(),
+                    mp_drawing_styles.get_default_hand_connections_style()
+                )
+        
+        # Handle prediction
+        if prediction is not None:
+            sign_name, confidence = prediction
+            
+            # Check cooldown to avoid duplicate detections
+            if (last_prediction != sign_name or 
+                current_time - last_prediction_time > prediction_cooldown):
+                detected_signs.append(sign_name)
+                last_prediction = sign_name
+                last_prediction_time = current_time
+                print(f"✓ Detected: {sign_name} (confidence: {confidence:.2f})")
+                detector.reset_buffer()  # Reset after successful detection
+        
+        # Display info
+        buffer_fill, buffer_max = detector.get_buffer_status()
+        buffer_percent = (buffer_fill / buffer_max) * 100
+        
+        # Status text
+        cv2.putText(frame, f"Buffer: {buffer_fill}/{buffer_max} ({buffer_percent:.0f}%)",
+                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        if last_prediction:
+            cv2.putText(frame, f"Last: {last_prediction}",
+                        (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        # Detected signs
+        signs_text = " ".join(detected_signs[-10:])  # Show last 10
+        cv2.putText(frame, f"Signs: {signs_text}",
+                    (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        
+        # Buffer progress bar
+        bar_width = 300
+        bar_height = 20
+        bar_x, bar_y = 10, 110
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height),
+                      (255, 255, 255), 2)
+        filled_width = int((buffer_fill / buffer_max) * bar_width)
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + filled_width, bar_y + bar_height),
+                      (0, 255, 0), -1)
+        
+        cv2.imshow('Motion Sign Detection', frame)
+        
+        # Handle key presses
+        key = cv2.waitKey(1) & 0xFF
+        
+        if key == ord('q'):
+            break
+        elif key == ord('r'):
+            detector.reset_buffer()
+            print("Buffer reset")
+        elif key == ord('c'):
+            detected_signs.clear()
+            print("Detected signs cleared")
+    
+    cap.release()
+    cv2.destroyAllWindows()
+    
+    print("\n=== Session Summary ===")
+    print(f"Total signs detected: {len(detected_signs)}")
+    print(f"Signs: {' '.join(detected_signs)}")
+
+
+if __name__ == "__main__":
+    import argparse
+    import os
+    
+    parser = argparse.ArgumentParser(description="Run motion-based sign detection")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="models/motion_model.h5",
+        help="Path to trained model"
+    )
+    parser.add_argument(
+        "--metadata",
+        type=str,
+        default="models/motion_model_metadata.pkl",
+        help="Path to metadata file"
+    )
+    parser.add_argument(
+        "--camera",
+        type=int,
+        default=0,
+        help="Camera index"
+    )
+    
+    args = parser.parse_args()
+    
+    # Check if files exist
+    if not os.path.exists(args.model):
+        print(f"Error: Model file not found: {args.model}")
+        exit(1)
+    
+    if not os.path.exists(args.metadata):
+        print(f"Error: Metadata file not found: {args.metadata}")
+        exit(1)
+    
+    run_motion_detection(args.model, args.metadata, args.camera)
+

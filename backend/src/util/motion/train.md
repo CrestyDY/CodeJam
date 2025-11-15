@@ -1,0 +1,3 @@
+- python create_dataset_motion.py --mode interactive --hands 1
+- python train_motion_classifier.py --data motion_data.pickle --model-type lstm 
+- python inference_motion.py --model models/motion_model.h5 --metadata models/motion_model_metadata.pkl
