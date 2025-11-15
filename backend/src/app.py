@@ -40,12 +40,21 @@ st.sidebar.markdown("# ⚙️ Settings")
 
 # Detection mode selector
 if MOTION_AVAILABLE:
+    mode_options = ["Unified (Auto-Switch)", "Static (Letters/Words)", "Motion (Gestures)"]
+    mode_index = {"unified": 0, "static": 1, "motion": 2}.get(st.session_state.detection_mode, 0)
+
     detection_mode = st.sidebar.radio(
         "Detection Mode",
-        ["Static (Letters/Words)", "Motion (Gestures)"],
-        index=0 if st.session_state.detection_mode == "static" else 1
+        mode_options,
+        index=mode_index
     )
-    st.session_state.detection_mode = "static" if detection_mode.startswith("Static") else "motion"
+
+    if detection_mode.startswith("Unified"):
+        st.session_state.detection_mode = "unified"
+    elif detection_mode.startswith("Static"):
+        st.session_state.detection_mode = "static"
+    else:
+        st.session_state.detection_mode = "motion"
 else:
     st.sidebar.info("📦 Install TensorFlow to enable Motion Detection:\npip install tensorflow")
     st.session_state.detection_mode = "static"
@@ -142,7 +151,9 @@ with col_main:
     st.title("📹 Sign Language Recognition")
 
     # Display current mode
-    if st.session_state.detection_mode == "static":
+    if st.session_state.detection_mode == "unified":
+        st.success("🔄 Unified Mode: Automatically switches between static and motion detection")
+    elif st.session_state.detection_mode == "static":
         st.info("🔷 Static Mode: Detecting letters and static words")
     else:
         if motion_model is None:

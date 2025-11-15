@@ -5,8 +5,13 @@ import cv2
 import numpy as np
 import mediapipe as mp
 import pickle
+import json
+import threading
+import time
 from collections import deque
 from tensorflow import keras
+from src.ai.get_llm_response import get_response, check_if_sentence_complete, speak_text
+
 
 
 class MotionSignDetector:
@@ -153,7 +158,7 @@ class MotionSignDetector:
         return len(self.frame_buffer), self.sequence_length
 
 
-def run_motion_detection(model_path, metadata_path, camera_index=0):
+def run_motion_detection(model_path, metadata_path, camera_index=0, enable_ai=True):
     """
     Run real-time motion detection from webcam.
     
@@ -161,6 +166,7 @@ def run_motion_detection(model_path, metadata_path, camera_index=0):
         model_path: Path to trained model
         metadata_path: Path to metadata
         camera_index: Camera index to use
+        enable_ai: Enable AI sentence completion and TTS features
     """
     detector = MotionSignDetector(model_path, metadata_path)
     
@@ -171,6 +177,15 @@ def run_motion_detection(model_path, metadata_path, camera_index=0):
     last_prediction_time = 0
     prediction_cooldown = 2.0  # seconds
     
+    # AI and sentence completion state
+    sentence_completion_status = {}
+    last_checked_input = ""
+    last_spoken_input = ""
+    status_lock = threading.Lock()
+    sentence_options = []
+    selection_mode = False
+    selected_sentence = ""
+
     mp_hands = mp.solutions.hands
     mp_drawing = mp.solutions.drawing_utils
     mp_drawing_styles = mp.solutions.drawing_styles
@@ -181,8 +196,77 @@ def run_motion_detection(model_path, metadata_path, camera_index=0):
     print("Press 'c' to clear detected signs")
     print("=" * 50)
     
-    import time
-    
+    def run_llm_in_background(user_input):
+        """Run the LLM call in a separate thread to avoid blocking the video feed"""
+        nonlocal sentence_completion_status, last_checked_input, last_spoken_input
+        nonlocal detected_signs, sentence_options, selection_mode, selected_sentence
+
+        def thread_target():
+            nonlocal sentence_completion_status, last_checked_input, last_spoken_input
+            nonlocal detected_signs, sentence_options, selection_mode, selected_sentence
+
+            try:
+                # Get response interpretations
+                response = get_response(user_input)
+                if response:
+                    print(f"\n{'='*60}")
+                    print(f"📝 LLM Response for '{user_input}':")
+                    print(f"{'='*60}")
+                    print(response)
+                    print(f"{'='*60}\n")
+
+                    # Parse JSON response for sentence options
+                    try:
+                        response_data = json.loads(response)
+                        if 'sentences' in response_data and isinstance(response_data['sentences'], list):
+                            sentence_options = response_data['sentences'][:3]
+                            selection_mode = True
+                            selected_sentence = ""
+                            print(f"\n✨ {len(sentence_options)} sentence options available!")
+                            print("   - Add more signs to refine the sentence\n")
+                    except json.JSONDecodeError as je:
+                        print(f"Warning: Could not parse sentence options: {je}")
+                        sentence_options = []
+                        selection_mode = False
+
+                # Check if sentence is complete
+                completion_response = check_if_sentence_complete(user_input)
+
+                try:
+                    completion_data = json.loads(completion_response)
+
+                    with status_lock:
+                        sentence_completion_status = completion_data
+                        last_checked_input = user_input
+
+                    print(f"\n{'='*60}")
+                    print(f"🔍 Sentence Completion Check for '{user_input}':")
+                    print(f"   Complete: {completion_data.get('is_complete', 'unknown')}")
+                    print(f"   Reason: {completion_data.get('reason', 'no reason provided')}")
+                    print(f"{'='*60}")
+
+                    # If sentence is complete, speak it and clear buffer
+                    if completion_data.get('is_complete', False):
+                        if user_input != last_spoken_input:
+                            def speak_completion():
+                                speak_text(user_input)
+                            threading.Thread(target=speak_completion, daemon=True).start()
+                            last_spoken_input = user_input
+
+                        print("✨ Sentence complete! Clearing buffer for new sentence...")
+                        detected_signs.clear()
+
+                except json.JSONDecodeError:
+                    print(f"\n⚠️ Could not parse completion response as JSON\n")
+                    with status_lock:
+                        sentence_completion_status = {"is_complete": False, "reason": "Parse error"}
+
+            except Exception as e:
+                print(f"\n❌ Error getting LLM response: {e}\n")
+
+        thread = threading.Thread(target=thread_target, daemon=True)
+        thread.start()
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -217,7 +301,13 @@ def run_motion_detection(model_path, metadata_path, camera_index=0):
                 last_prediction_time = current_time
                 print(f"✓ Detected: {sign_name} (confidence: {confidence:.2f})")
                 detector.reset_buffer()  # Reset after successful detection
-        
+
+                if detected_signs:
+                    current_sentence = " ".join(detected_signs)
+                    # Only call LLM if the sentence changed significantly
+                    if current_sentence != last_checked_input:
+                        run_llm_in_background(current_sentence)
+
         # Display info
         buffer_fill, buffer_max = detector.get_buffer_status()
         buffer_percent = (buffer_fill / buffer_max) * 100
@@ -235,10 +325,30 @@ def run_motion_detection(model_path, metadata_path, camera_index=0):
         cv2.putText(frame, f"Signs: {signs_text}",
                     (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
+
+        with status_lock:
+            is_complete = sentence_completion_status.get('is_complete', False)
+
+        status_text = "Complete" if is_complete else "Incomplete"
+        status_color = (0, 255, 0) if is_complete else (0, 165, 255)
+        cv2.putText(frame, f"Sentence: {status_text}",
+                    (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
+
+        # Show sentence options if available
+        if selection_mode and sentence_options:
+            y_offset = 150
+            cv2.putText(frame, "AI Suggestions:",
+                        (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+            for i, sentence in enumerate(sentence_options[:3], 1):
+                y_offset += 20
+                sentence_short = sentence[:60] + "..." if len(sentence) > 60 else sentence
+                cv2.putText(frame, f"{i}. {sentence_short}",
+                            (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+
         # Buffer progress bar
         bar_width = 300
         bar_height = 20
-        bar_x, bar_y = 10, 110
+        bar_x, bar_y = 10, 250 if sentence_options else 110
         cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height),
                       (255, 255, 255), 2)
         filled_width = int((buffer_fill / buffer_max) * bar_width)
@@ -290,9 +400,23 @@ if __name__ == "__main__":
         default=0,
         help="Camera index"
     )
-    
+    parser.add_argument(
+        "--enable-ai",
+        action="store_true",
+        default=True,
+        help="Enable AI sentence completion and TTS (default: True)"
+    )
+    parser.add_argument(
+        "--disable-ai",
+        action="store_true",
+        help="Disable AI features"
+    )
+
     args = parser.parse_args()
-    
+
+    # Determine AI enabled state
+    enable_ai = args.enable_ai and not args.disable_ai
+
     # Check if files exist
     if not os.path.exists(args.model):
         print(f"Error: Model file not found: {args.model}")
@@ -302,5 +426,7 @@ if __name__ == "__main__":
         print(f"Error: Metadata file not found: {args.metadata}")
         exit(1)
     
-    run_motion_detection(args.model, args.metadata, args.camera)
+
+
+    run_motion_detection(args.model, args.metadata, args.camera, enable_ai=enable_ai)
 
