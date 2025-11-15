@@ -8,7 +8,12 @@ version = "0.1.0"
 description = "Backend API for CodeJam project"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "dotenv>=0.9.9",
+    "openai[realtime]>=2.8.0",
+    "toll>=4.2.1",
+    "tool>=0.8.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -26,6 +31,9 @@ target-version = ['py39']
 [tool.isort]
 profile = "black"
 line_length = 88
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [tool.mypy]
 python_version = "3.9"
