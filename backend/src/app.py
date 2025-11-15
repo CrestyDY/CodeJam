@@ -27,7 +27,7 @@ def start_camera():
     if st.session_state.video_capture is None:
         st.session_state.video_capture = cv2.VideoCapture(st.session_state.camera_index)
         if not st.session_state.video_capture.isOpened():
-            st.error("Unable to access camera. Please check your camera permissions.")
+            st.error("Try a different camera index.")
             st.session_state.video_capture = None
             return False
     st.session_state.camera_active = True
