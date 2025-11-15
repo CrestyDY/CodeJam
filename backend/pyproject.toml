@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "dotenv>=0.9.9",
+    "mediapipe>=0.10.21",
     "openai[realtime]>=2.8.0",
+    "scikit-learn>=1.6.1",
     "toll>=4.2.1",
     "tool>=0.8.0",
 ]
