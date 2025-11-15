@@ -459,15 +459,54 @@ def run_unified_detection(static_one_path, static_two_path,
         # Process frame with unified detector
         result = detector.process_frame(frame)
         
-        # Draw hand landmarks
+        # Draw hand landmarks and bounding boxes
         if result['hand_results'] and result['hand_results'].multi_hand_landmarks:
+            # Calculate bounding box for visualization
+            all_x, all_y = [], []
             for hand_landmarks in result['hand_results'].multi_hand_landmarks:
                 mp_drawing.draw_landmarks(
                     frame, hand_landmarks, mp_hands.HAND_CONNECTIONS,
                     mp_drawing_styles.get_default_hand_landmarks_style(),
                     mp_drawing_styles.get_default_hand_connections_style()
                 )
-        
+
+                # Collect coordinates for bounding box
+                for lm in hand_landmarks.landmark:
+                    all_x.append(lm.x)
+                    all_y.append(lm.y)
+
+            # Draw bounding box around detected hands
+            if all_x and all_y:
+                H, W, _ = frame.shape
+                x1 = int(min(all_x) * W) - 10
+                y1 = int(min(all_y) * H) - 10
+                x2 = int(max(all_x) * W) + 10
+                y2 = int(max(all_y) * H) + 10
+
+                # Color based on detection type
+                box_color = (0, 0, 0) if result['num_hands'] == 1 else (0, 255, 0)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 4)
+
+                # Show predicted sign near bounding box
+                if result['sign']:
+                    cv2.putText(frame, result['sign'].strip(), (x1, y1 - 10),
+                               cv2.FONT_HERSHEY_SIMPLEX, 1.3, box_color, 3, cv2.LINE_AA)
+
+                # Show hold progress bar for static detection
+                if result['type'] == 'static' and character_start_time is not None and current_character:
+                    elapsed_time = current_time - character_start_time
+                    progress = min(elapsed_time / HOLD_DURATION, 1.0)
+                    bar_width = int((x2 - x1) * progress)
+
+                    # Progress bar
+                    cv2.rectangle(frame, (x1, y2 + 5), (x1 + bar_width, y2 + 15), (0, 255, 0), -1)
+                    # Progress bar border
+                    cv2.rectangle(frame, (x1, y2 + 5), (x2, y2 + 15), (0, 0, 0), 2)
+
+                    # Show hold time
+                    cv2.putText(frame, f"Hold: {elapsed_time:.1f}s / {HOLD_DURATION}s",
+                               (x1, y2 + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
         # Handle detection
         if result['sign']:
             sign_name = result['sign'].strip()
@@ -515,30 +554,33 @@ def run_unified_detection(static_one_path, static_two_path,
         buffer_fill, buffer_max = result['buffer_fill'], result['buffer_max']
         buffer_percent = (buffer_fill / buffer_max) * 100
         
+        # PROMINENT: Detected text at top (like static inference)
+        signs_text = " ".join([s.strip() for s in detected_signs])
+        cv2.putText(frame, f"Detected: {signs_text}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA)
+
         # Mode indicator
+        mode_color = (255, 255, 0) if result['type'] == 'static' else (255, 0, 255) if result['type'] == 'motion' else (200, 200, 200)
         mode_text = f"Mode: {result['type'].upper() if result['type'] else 'DETECTING'}"
-        cv2.putText(frame, mode_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-        
-        # Buffer status
-        cv2.putText(frame, f"Motion Buffer: {buffer_fill}/{buffer_max} ({buffer_percent:.0f}%)",
-                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-        
-        # Detected signs
-        signs_text = " ".join([s.strip() for s in detected_signs[-10:]])
-        cv2.putText(frame, f"Signs: {signs_text}",
-                    (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        
+        cv2.putText(frame, mode_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, mode_color, 2, cv2.LINE_AA)
+
+        # Buffer status (only show when accumulating for motion)
+        if buffer_fill > 0:
+            cv2.putText(frame, f"Motion Buffer: {buffer_fill}/{buffer_max} ({buffer_percent:.0f}%)",
+                        (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
         # AI status
+        y_pos = 120 if buffer_fill == 0 else 150
         if enable_ai and AI_AVAILABLE:
             with status_lock:
                 is_complete = sentence_completion_status.get('is_complete', False)
             status_text = "Complete" if is_complete else "Incomplete"
             status_color = (0, 255, 0) if is_complete else (0, 165, 255)
             cv2.putText(frame, f"Sentence: {status_text}",
-                        (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
-            
+                        (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
+
             if selection_mode and sentence_options:
-                y_offset = 150
+                y_offset = y_pos + 30
                 cv2.putText(frame, "AI Suggestions:",
                             (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
                 for i, sentence in enumerate(sentence_options[:3], 1):
@@ -547,15 +589,24 @@ def run_unified_detection(static_one_path, static_two_path,
                     cv2.putText(frame, f"{i}. {sentence_short}",
                                 (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         
-        # Buffer progress bar
-        bar_y = 250 if (sentence_options and enable_ai) else 150
-        bar_width = 300
-        bar_height = 15
-        cv2.rectangle(frame, (10, bar_y), (310, bar_y + bar_height), (255, 255, 255), 2)
-        filled = int((buffer_fill / buffer_max) * bar_width)
-        if filled > 0:
-            cv2.rectangle(frame, (10, bar_y), (10 + filled, bar_y + bar_height), (0, 255, 0), -1)
-        
+        # Motion buffer progress bar at bottom (only when buffer is accumulating)
+        if buffer_fill > 0:
+            H, W, _ = frame.shape
+            bar_y = H - 40  # 40 pixels from bottom
+            bar_width = 400
+            bar_height = 20
+            bar_x = (W - bar_width) // 2  # Center horizontally
+
+            # Background
+            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (255, 255, 255), 2)
+            # Fill
+            filled = int((buffer_fill / buffer_max) * bar_width)
+            if filled > 0:
+                cv2.rectangle(frame, (bar_x, bar_y), (bar_x + filled, bar_y + bar_height), (0, 255, 0), -1)
+            # Label
+            cv2.putText(frame, f"Motion Detection: {buffer_percent:.0f}%",
+                       (bar_x, bar_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
         cv2.imshow('Unified Sign Detection', frame)
         
         # Handle keys
