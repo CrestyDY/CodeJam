@@ -15,6 +15,9 @@ dependencies = [
     "scikit-learn>=1.6.1",
     "toll>=4.2.1",
     "tool>=0.8.0",
+    "streamlit>=1.28.0",
+    "opencv-python>=4.8.0",
+    "pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]
