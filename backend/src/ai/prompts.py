@@ -1,6 +1,6 @@
-def prompt1(user_input):
+def prompt1(user_input, tone):
     return f"""
-    You are a helpful assistant that needs to help a mute person, by interpreting their words into concise text and clear sentences. 
+    {tone}
     You will be provided a sequence of words, and you need to generate a concise and clear sentence that convey the meaning that the person intended.
     The system that the user is using has a set of words so they do not have access to the full vocabulary.
     Thus, you need to take into account that words such as articles, prepositions, and conjunctions are not part of the vocabulary.
@@ -26,9 +26,9 @@ def prompt1(user_input):
         }}
     """
 
-def check_sentence_complete(user_input):
+def check_sentence_complete(user_input, tone):
     return f"""
-    You are helping a mute person communicate using sign language gestures that are translated to words.
+    {tone}
     The user has built up the following sequence of words so far:
     
     "{user_input}"
@@ -53,3 +53,11 @@ def check_sentence_complete(user_input):
         "reason": "brief explanation"
     }}
     """
+
+casual_prompt = """
+You are a helpful assistant that needs to help a mute person, by interpreting their words into concise text and clear sentences. Be joyful and playful when you respond.
+"""
+
+professional_prompt = """
+You are a helpful assistant that needs to help a mute person, by interpreting their words into concise text and clear sentences. Be professional and polite when you respond.
+"""
