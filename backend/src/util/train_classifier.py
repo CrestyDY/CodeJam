@@ -7,11 +7,11 @@ import numpy as np
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(SCRIPT_DIR, 'data.pickle')
+DATA_PATH = os.path.join(SCRIPT_DIR, 'data')
 MODEL_PATH = os.path.join(SCRIPT_DIR, "models")
 
 data_dict1 = pickle.load(open(os.path.join(DATA_PATH, 'one_hand_data.pickle'), 'rb'))
-data_dict2 = pickle.load(open(os.path.join(DATA_PATH, 'two_hands.pickle'), 'rb'))
+data_dict2 = pickle.load(open(os.path.join(DATA_PATH, 'two_hands_data.pickle'), 'rb'))
 
 data1 = np.asarray(data_dict1['data'])
 labels1 = np.asarray(data_dict1['labels'])
@@ -34,8 +34,8 @@ score2 = accuracy_score(y_predict2, y_test2)
 print('{}% of one-handed samples were classified correctly !'.format(score1 * 100))
 
 print('{}% of two-handed samples were classified correctly !'.format(score2 * 100))
-f1 = open(os.path.join(MODEL_PATH + 'model_one_hand.p'), 'wb')
-f2 = open(os.path.join(MODEL_PATH + 'model_two_hands.p'), 'wb')
+f1 = open(os.path.join(MODEL_PATH, 'model_one_hand.p'), 'wb')
+f2 = open(os.path.join(MODEL_PATH, 'model_two_hands.p'), 'wb')
 pickle.dump({'model': model1}, f1)
 pickle.dump({'model': model2}, f2)
 f1.close()
