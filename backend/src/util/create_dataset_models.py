@@ -2,6 +2,7 @@ import os
 import pickle
 import cv2
 import mediapipe as mp
+import argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.join(SCRIPT_DIR, 'data')
@@ -181,17 +182,35 @@ def save_dataset(data, labels, out_path):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Build ASL datasets for one-hand and/or two-hands models")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["one", "two", "both"],
+        default="both",
+        help="Which dataset to build: 'one' (one-hand), 'two' (two-hands), or 'both' (default)"
+    )
+
+    args = parser.parse_args()
+
     ONE_HAND_DIR = os.path.join(BASE_DIR, "one_hand")
     TWO_HANDS_DIR = os.path.join(BASE_DIR, "two_hands")
 
-    # 1) ONE-HAND
-    data_one, labels_one = build_dataset_one_hand(ONE_HAND_DIR)
-    if data_one:
-        save_dataset(data_one, labels_one, "one_hand_data.pickle")
+    # Build datasets based on mode
+    if args.mode in ["one", "both"]:
+        print(f"\n=== Building ONE-HAND dataset from {ONE_HAND_DIR} ===")
+        data_one, labels_one = build_dataset_one_hand(ONE_HAND_DIR)
+        if data_one:
+            save_dataset(data_one, labels_one, "one_hand_data.pickle")
+        else:
+            print("[ONE-HAND] No data collected. Check your directory and images.")
 
-    # 2) TWO-HANDS
-    data_two, labels_two = build_dataset_two_hands(TWO_HANDS_DIR)
-    if data_two:
-        save_dataset(data_two, labels_two, "two_hands_data.pickle")
+    if args.mode in ["two", "both"]:
+        print(f"\n=== Building TWO-HANDS dataset from {TWO_HANDS_DIR} ===")
+        data_two, labels_two = build_dataset_two_hands(TWO_HANDS_DIR)
+        if data_two:
+            save_dataset(data_two, labels_two, "two_hands_data.pickle")
+        else:
+            print("[TWO-HANDS] No data collected. Check your directory and images.")
 
-    print("Done building datasets for both models.")
+    print("\n✓ Done building datasets.")
