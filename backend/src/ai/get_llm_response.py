@@ -4,7 +4,7 @@ import threading
 from concurrent.futures import Future
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-from src.ai.prompts import prompt1, check_sentence_complete
+from src.ai.prompts import prompt1, check_sentence_complete, casual_prompt, professional_prompt
 from pathlib import Path
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -130,7 +130,7 @@ def get_llm_response(prompt_text: str):
 
 def create_prompt(sentence: str) -> str:
     """Generate prompt from user input using prompt1"""
-    return prompt1(user_input=sentence)
+    return prompt1(user_input=sentence, tone=casual_prompt)
 
 def get_response(user_input):
     """Get response from LLM (now synchronous but uses persistent event loop)"""
@@ -140,7 +140,7 @@ def get_response(user_input):
 
 def check_if_sentence_complete(user_input):
     """Check if the current input looks like a complete sentence using LLM"""
-    prompt_text = check_sentence_complete(user_input)
+    prompt_text = check_sentence_complete(user_input, tone=casual_prompt)
     response = get_llm_response(prompt_text)
     return response
 
