@@ -9,16 +9,21 @@ import threading
 from src.ai.get_llm_response import get_response, check_if_sentence_complete, speak_text
 
 
-def run_sign_language_classifier(config_file='asl.json'):
+def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='asl_one_hand.json'):
     """
-    Run the sign language to text classifier
+    Run the sign language to text classifier with auto-switching between one-hand and two-hand models
     
     Args:
-        config_file (str): Name of the JSON config file containing gesture mappings (default: 'asl.json')
+        config_file (str): Name of the JSON config file containing two-hand gesture mappings (default: 'asl.json')
+        config_file_one_hand (str): Name of the JSON config file containing one-hand gesture mappings (default: 'asl_one_hand.json')
     """
-    # Load the trained model
-    model_dict = pickle.load(open(os.path.join(os.path.dirname(__file__), 'model.p'), 'rb'))
-    model = model_dict['model']
+    # Load both trained models
+    script_dir = os.path.dirname(__file__)
+    model_one_dict = pickle.load(open(os.path.join(script_dir, 'models', 'model_one_hand.p'), 'rb'))
+    model_two_dict = pickle.load(open(os.path.join(script_dir, 'models', 'model_two_hands.p'), 'rb'))
+    
+    model_one = model_one_dict['model']  # One-hand model (42 features)
+    model_two = model_two_dict['model']  # Two-hand model (84 features)
     
     # Setup camera with higher resolution
     cap = cv2.VideoCapture(0)
@@ -49,24 +54,38 @@ def run_sign_language_classifier(config_file='asl.json'):
     last_spoken_input = ""  # Track what we last spoke to avoid repeating
     status_lock = threading.Lock()  # Thread lock for safe access
     
-    # Load ASL word mappings from config file
-    CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', config_file)
-    with open(CONFIG_PATH, 'r') as f:
-        asl_config = json.load(f)
+    # Load ASL word mappings from config files
+    config_dir = os.path.join(os.path.dirname(__file__), '..', 'config')
+    
+    # Load two-hand gestures
+    CONFIG_PATH_TWO = os.path.join(config_dir, config_file)
+    with open(CONFIG_PATH_TWO, 'r') as f:
+        asl_config_two = json.load(f)
         # Convert string keys to integers and add space after each word
-        labels_dict = {int(k): v + ' ' for k, v in asl_config.items()}
-        print(f"Loaded {len(labels_dict)} sign language gestures from {config_file}")
-        
-        # Find indices for selection gestures dynamically
-        select_indices = {}
-        for key, value in labels_dict.items():
-            if value.strip() == "Select 1":
-                select_indices[1] = key
-            elif value.strip() == "Select 2":
-                select_indices[2] = key
-            elif value.strip() == "Select 3":
-                select_indices[3] = key
-        print(f"Selection gestures mapped: {select_indices}")
+        labels_dict_two = {int(k): v + ' ' for k, v in asl_config_two.items()}
+        print(f"Loaded {len(labels_dict_two)} two-hand sign language gestures from {config_file}")
+    
+    # Load one-hand gestures (use default_labels if file doesn't exist)
+    labels_dict_one = {0: 'HI ', 1: 'MY ', 2: 'H ', 3: 'E '}  # Default fallback
+    CONFIG_PATH_ONE = os.path.join(config_dir, config_file_one_hand)
+    try:
+        with open(CONFIG_PATH_ONE, 'r') as f:
+            asl_config_one = json.load(f)
+            labels_dict_one = {int(k): v + ' ' for k, v in asl_config_one.items()}
+            print(f"Loaded {len(labels_dict_one)} one-hand sign language gestures from {config_file_one_hand}")
+    except FileNotFoundError:
+        print(f"Warning: {config_file_one_hand} not found, using default one-hand labels")
+    
+    # Find indices for selection gestures dynamically (check both dictionaries)
+    select_indices = {}
+    for key, value in labels_dict_two.items():
+        if value.strip() == "Select 1":
+            select_indices[1] = key
+        elif value.strip() == "Select 2":
+            select_indices[2] = key
+        elif value.strip() == "Select 3":
+            select_indices[3] = key
+    print(f"Selection gestures mapped: {select_indices}")
     
     def run_llm_in_background(user_input):
         """Run the LLM call in a separate thread to avoid blocking the video feed"""
@@ -160,18 +179,24 @@ def run_sign_language_classifier(config_file='asl.json'):
 
         results = hands.process(frame_rgb)
         
-        # Only process if exactly 2 hands are detected (combined gesture)
-        if results.multi_hand_landmarks and len(results.multi_hand_landmarks) == 2:
-            data_aux = []
-            all_x = []
-            all_y = []
+        predicted_character = None
+        x1 = y1 = x2 = y2 = None
+        mode_text = ""
+        num_hands = len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0
+        
+        # Process based on number of hands detected
+        if results.multi_hand_landmarks and num_hands in [1, 2]:
             
-            # Process both hands and combine their features
-            for hand_idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
-                x_hand = []
-                y_hand = []
+            # ============ ONE HAND DETECTED ============
+            if num_hands == 1:
+                mode_text = "Mode: ONE-HAND"
+                hand_landmarks = results.multi_hand_landmarks[0]
                 
-                # Draw landmarks for this hand
+                data_aux = []
+                x_ = []
+                y_ = []
+                
+                # Draw landmarks
                 mp_drawing.draw_landmarks(
                     frame,
                     hand_landmarks,
@@ -179,33 +204,89 @@ def run_sign_language_classifier(config_file='asl.json'):
                     mp_drawing_styles.get_default_hand_landmarks_style(),
                     mp_drawing_styles.get_default_hand_connections_style())
                 
-                # Extract landmarks for this hand
-                for i in range(len(hand_landmarks.landmark)):
-                    x = hand_landmarks.landmark[i].x
-                    y = hand_landmarks.landmark[i].y
-                    x_hand.append(x)
-                    y_hand.append(y)
-                    all_x.append(x)
-                    all_y.append(y)
+                # Collect coordinates
+                for lm in hand_landmarks.landmark:
+                    x = lm.x
+                    y = lm.y
+                    x_.append(x)
+                    y_.append(y)
                 
-                # Normalize coordinates relative to this hand's bounding box
-                for i in range(len(hand_landmarks.landmark)):
-                    x = hand_landmarks.landmark[i].x
-                    y = hand_landmarks.landmark[i].y
-                    data_aux.append(x - min(x_hand))
-                    data_aux.append(y - min(y_hand))
-            
-            # Get combined bounding box for both hands
-            x1 = int(min(all_x) * W) - 10
-            y1 = int(min(all_y) * H) - 10
-            x2 = int(max(all_x) * W) + 10
-            y2 = int(max(all_y) * H) + 10
-            
-            # Make prediction using combined features (84 features: 42 per hand)
-            if len(data_aux) == 84:
-                prediction = model.predict([np.asarray(data_aux)])
-                predicted_character = labels_dict[int(prediction[0])]
+                min_x = min(x_)
+                min_y = min(y_)
                 
+                # Normalize coordinates
+                for lm in hand_landmarks.landmark:
+                    x = lm.x
+                    y = lm.y
+                    data_aux.append(x - min_x)
+                    data_aux.append(y - min_y)
+                
+                # Bounding box
+                x1 = int(min(x_) * W) - 10
+                y1 = int(min(y_) * H) - 10
+                x2 = int(max(x_) * W) + 10
+                y2 = int(max(y_) * H) + 10
+                
+                # Make prediction with one-hand model (42 features)
+                if len(data_aux) == 42:
+                    prediction = model_one.predict([np.asarray(data_aux)])
+                    predicted_character = labels_dict_one[int(prediction[0])]
+                else:
+                    cv2.putText(frame, f"Error: {len(data_aux)} features (need 42)", (10, 90), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
+            
+            # ============ TWO HANDS DETECTED ============
+            elif num_hands == 2:
+                mode_text = "Mode: TWO-HAND"
+                data_aux = []
+                all_x = []
+                all_y = []
+                
+                # Process both hands and combine their features
+                for hand_idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                    x_hand = []
+                    y_hand = []
+                    
+                    # Draw landmarks for this hand
+                    mp_drawing.draw_landmarks(
+                        frame,
+                        hand_landmarks,
+                        mp_hands.HAND_CONNECTIONS,
+                        mp_drawing_styles.get_default_hand_landmarks_style(),
+                        mp_drawing_styles.get_default_hand_connections_style())
+                    
+                    # Extract landmarks for this hand
+                    for i in range(len(hand_landmarks.landmark)):
+                        x = hand_landmarks.landmark[i].x
+                        y = hand_landmarks.landmark[i].y
+                        x_hand.append(x)
+                        y_hand.append(y)
+                        all_x.append(x)
+                        all_y.append(y)
+                    
+                    # Normalize coordinates relative to this hand's bounding box
+                    for i in range(len(hand_landmarks.landmark)):
+                        x = hand_landmarks.landmark[i].x
+                        y = hand_landmarks.landmark[i].y
+                        data_aux.append(x - min(x_hand))
+                        data_aux.append(y - min(y_hand))
+                
+                # Get combined bounding box for both hands
+                x1 = int(min(all_x) * W) - 10
+                y1 = int(min(all_y) * H) - 10
+                x2 = int(max(all_x) * W) + 10
+                y2 = int(max(all_y) * H) + 10
+                
+                # Make prediction using combined features (84 features: 42 per hand)
+                if len(data_aux) == 84:
+                    prediction = model_two.predict([np.asarray(data_aux)])
+                    predicted_character = labels_dict_two[int(prediction[0])]
+                else:
+                    cv2.putText(frame, f"Error: {len(data_aux)} features (need 84)", (10, 90), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
+            
+            # ============ CHARACTER TRACKING LOGIC (for both 1 and 2 hands) ============
+            if predicted_character is not None:
                 # Check if this is a new character or same as current
                 if predicted_character != current_character:
                     # New character detected, reset timer
@@ -263,27 +344,29 @@ def run_sign_language_classifier(config_file='asl.json'):
                                 # Run the LLM call in background thread so video doesn't freeze
                                 run_llm_in_background(letters_detected)
                 
-                # Display the predicted character
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 4)
-                cv2.putText(frame, predicted_character, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 255, 0), 3,
-                            cv2.LINE_AA)
-                
-                # Show hold progress bar
-                if character_start_time is not None and current_character != previous_detected:
-                    elapsed_time = time.time() - character_start_time
-                    progress = min(elapsed_time / HOLD_DURATION, 1.0)
-                    bar_width = int((x2 - x1) * progress)
-                    cv2.rectangle(frame, (x1, y2 + 5), (x1 + bar_width, y2 + 15), (0, 255, 0), -1)
-                    cv2.rectangle(frame, (x1, y2 + 5), (x2, y2 + 15), (0, 0, 0), 2)
+                # Display the predicted character with bounding box
+                if x1 is not None and y1 is not None and x2 is not None and y2 is not None:
+                    # Use different colors for one-hand vs two-hand
+                    color = (0, 0, 0) if mode_text == "Mode: ONE-HAND" else (0, 255, 0)
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 4)
+                    cv2.putText(frame, predicted_character, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.3, color, 3,
+                                cv2.LINE_AA)
+                    
+                    # Show hold progress bar
+                    if character_start_time is not None and current_character != previous_detected:
+                        elapsed_time = time.time() - character_start_time
+                        progress = min(elapsed_time / HOLD_DURATION, 1.0)
+                        bar_width = int((x2 - x1) * progress)
+                        cv2.rectangle(frame, (x1, y2 + 5), (x1 + bar_width, y2 + 15), (0, 255, 0), -1)
+                        cv2.rectangle(frame, (x1, y2 + 5), (x2, y2 + 15), (0, 0, 0), 2)
             else:
-                # Invalid feature count
-                cv2.putText(frame, f"Error: {len(data_aux)} features (need 84)", (10, 60), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
+                # No valid prediction, reset tracking
+                current_character = ""
+                character_start_time = None
+        
         else:
-            # Not both hands detected
-            num_hands = len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0
-            
-            # Draw detected hands
+            # No hands or invalid number of hands detected
+            # Draw detected hands if any
             if results.multi_hand_landmarks:
                 for hand_landmarks in results.multi_hand_landmarks:
                     mp_drawing.draw_landmarks(
@@ -294,13 +377,20 @@ def run_sign_language_classifier(config_file='asl.json'):
                         mp_drawing_styles.get_default_hand_connections_style())
             
             # Show status message
-            status_text = f"Need BOTH hands! Currently: {num_hands}/2"
-            cv2.putText(frame, status_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA)
+            if num_hands == 0:
+                status_text = "No hands detected"
+            else:
+                status_text = f"Unsupported: {num_hands} hands (need 1 or 2)"
+            cv2.putText(frame, status_text, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
             
-            # Reset tracking when not both hands
+            # Reset tracking
             current_character = ""
             character_start_time = None
 
+        # Display mode (one-hand vs two-hand)
+        if mode_text:
+            cv2.putText(frame, mode_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
+        
         # Display detected letters on screen
         cv2.putText(frame, f"Detected: {letters_detected}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2,
                     cv2.LINE_AA)
@@ -314,13 +404,13 @@ def run_sign_language_classifier(config_file='asl.json'):
                 # Use different colors based on completion
                 color = (0, 255, 0) if sentence_completion_status.get('is_complete', False) else (255, 255, 0)
                 
-                cv2.putText(frame, f"Status: {completion_text}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
+                cv2.putText(frame, f"Status: {completion_text}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
                             cv2.LINE_AA)
                 
                 # Truncate reason if too long
                 if len(reason) > 50:
                     reason = reason[:47] + "..."
-                cv2.putText(frame, f"{reason}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
+                cv2.putText(frame, f"{reason}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
                             cv2.LINE_AA)
         
         # Display sentence options if in selection mode

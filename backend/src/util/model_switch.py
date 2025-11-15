@@ -17,7 +17,7 @@ print("model 2 features:", model_two.n_features_in_)
 
 
 # Set up camera, use 1 or 4 depending on setup(mac/windows)
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0)
 
 #setup mediapipe
 mp_hands = mp.solutions.hands
