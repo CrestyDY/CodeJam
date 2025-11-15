@@ -1,4 +1,5 @@
 import os
+import json
 import cv2
 import mediapipe as mp
 from time import sleep
@@ -10,11 +11,17 @@ mp_drawing_styles = mp.solutions.drawing_styles
 hands = mp_hands.Hands(static_image_mode=True, min_detection_confidence=0.3, max_num_hands=2)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'asl.json')
+
+with open(CONFIG_PATH, 'r') as f:
+    asl_config = json.load(f)
+    number_of_classes = len(asl_config)
+    print(f"Loaded {number_of_classes} sign language gestures from config")
+
 
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-number_of_classes = 5
 dataset_size = 100
 
 cap = cv2.VideoCapture(0)
