@@ -5,7 +5,7 @@ import mediapipe as mp
 import numpy as np
 import threading
 import json
-from src.ai.get_llm_response import get_response, check_if_sentence_complete
+from src.ai.get_llm_response import get_response, check_if_sentence_complete, speak_text
 import os
 
 # Get the directory where this script is located
@@ -32,16 +32,17 @@ HOLD_DURATION = 1.5  # seconds - adjust this value to change how long to hold
 # Sentence completion tracking
 sentence_completion_status = {}  # Initialize as empty dict instead of None
 last_checked_input = ""  # Track what we last checked
+last_spoken_input = ""  # Track what we last spoke to avoid repeating
 status_lock = threading.Lock()  # Thread lock for safe access
 
 labels_dict = {0: 'HI ', 1: 'MOM ', 2: 'HELLO ', 3: 'WORLD ', 4: ':) '}
 
 def run_llm_in_background(user_input):
     """Run the LLM call in a separate thread to avoid blocking the video feed"""
-    global sentence_completion_status, last_checked_input
+    global sentence_completion_status, last_checked_input, last_spoken_input, letters_detected
 
     def thread_target():
-        global sentence_completion_status, last_checked_input
+        global sentence_completion_status, last_checked_input, last_spoken_input, letters_detected
         try:
             # Check if sentence is complete
             completion_response = check_if_sentence_complete(user_input)
@@ -61,7 +62,7 @@ def run_llm_in_background(user_input):
                 print(f"   Reason: {completion_data.get('reason', 'no reason provided')}")
                 print(f"{'='*60}")
 
-                # If sentence looks complete, also get the interpretations
+                # If sentence looks complete, also get the interpretations AND speak it
                 if completion_data.get('is_complete', False):
                     response = get_response(user_input)
                     if response:
@@ -70,6 +71,16 @@ def run_llm_in_background(user_input):
                         print(f"{'='*60}")
                         print(response)
                         print(f"{'='*60}\n")
+
+                    # Speak the text only if we haven't spoken this exact input before
+                    if user_input != last_spoken_input:
+                        speak_text(user_input)
+                        last_spoken_input = user_input
+
+                    # Clear the buffer to allow starting a new sentence
+                    print("✨ Sentence complete! Clearing buffer for new sentence...")
+                    letters_detected = ""
+
             except json.JSONDecodeError:
                 print(f"\n⚠️ Could not parse completion response as JSON: {completion_response}\n")
                 with status_lock:
@@ -212,6 +223,7 @@ while True:
                 reason = reason[:47] + "..."
             cv2.putText(frame, f"{reason}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
                         cv2.LINE_AA)
+
 
     cv2.imshow('frame', frame)
     cv2.waitKey(1)
