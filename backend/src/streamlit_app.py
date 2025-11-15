@@ -11,6 +11,7 @@ st.set_page_config(
 
 st.sidebar.markdown("# Settings")
 st.sidebar.checkbox("Flip Camera", value=True, key="flip_camera")
+st.sidebar.slider("Confidence Level", min_value=0.0, max_value=1.0, value=0.5, step=0.05, key="confidence_level")
 
 # Initialize session state
 if 'camera_active' not in st.session_state:
@@ -112,102 +113,166 @@ with col_side:
 
 import pickle
 import mediapipe as mp
-model_dict = pickle.load(open('./model.p', 'rb'))
-model = model_dict['model']
 
-cap = cv2.VideoCapture(4)
+@st.cache_resource
+def load_models():
+    model1_dict = pickle.load(open('util/models/model_one_hand.p', 'rb'))
+    model2_dict = pickle.load(open('util/models/model_two_hands.p', 'rb'))
+    return model1_dict['model'], model2_dict['model']
+
+
+model_one, model_two = load_models()
 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 
-hands = mp_hands.Hands(static_image_mode=True, min_detection_confidence=0.3)
+hands = mp_hands.Hands(static_image_mode=True, min_detection_confidence=st.session_state.confidence_level)
 
-letters_detected = ""
-previous_detected = ""
-current_character = ""
-character_start_time = None
+if 'letters_detected' not in st.session_state:
+    st.session_state.letters_detected = ""
+if 'previous_detected' not in st.session_state:
+    st.session_state.previous_detected = ""
+if 'current_character' not in st.session_state:
+    st.session_state.current_character = ""
+if 'character_start_time' not in st.session_state:
+    st.session_state.character_start_time = None
+
 HOLD_DURATION = 1.5  # seconds - adjust this value to change how long to hold
-
-labels_dict = {0: 'A', 1: 'B', 2: 'C', 3: 'D', 4: 'E'}
+default_labels_one = {0: 'HI', 1: 'MY', 2: 'H', 3: 'E'}   # one-hand model
+default_labels_two = {0: 'NAME', 1: 'interpreter', 2: 'world',3:'L'}   # two-hand model
 
 def infer(frame):
-    global current_character, letters_detected, previous_detected, character_start_time
-    data_aux = []
-    x_ = []
-    y_ = []
-
+    predicted_character = None
     H, W, _ = frame.shape
 
     results = hands.process(frame_rgb)
-    if results.multi_hand_landmarks:
-        # Only process the first hand to match training data (42 features)
+    if results.multi_hand_landmarks and len(results.multi_hand_landmarks) == 1:
+        st.session_state.mode_text = "Mode: ONE-HAND"
         hand_landmarks = results.multi_hand_landmarks[0]
 
-        mp_drawing.draw_landmarks(
-            frame,  # image to draw
-            hand_landmarks,  # model output
-            mp_hands.HAND_CONNECTIONS,  # hand connections
-            mp_drawing_styles.get_default_hand_landmarks_style(),
-            mp_drawing_styles.get_default_hand_connections_style())
+        data_aux = []
+        x_ = []
+        y_ = []
 
-        for i in range(len(hand_landmarks.landmark)):
-            x = hand_landmarks.landmark[i].x
-            y = hand_landmarks.landmark[i].y
-
+        for lm in hand_landmarks.landmark:
+            x = lm.x
+            y = lm.y
             x_.append(x)
             y_.append(y)
 
-        for i in range(len(hand_landmarks.landmark)):
-            x = hand_landmarks.landmark[i].x
-            y = hand_landmarks.landmark[i].y
-            data_aux.append(x - min(x_))
-            data_aux.append(y - min(y_))
+        min_x = min(x_)
+        min_y = min(y_)
+
+        for lm in hand_landmarks.landmark:
+            x = lm.x
+            y = lm.y
+            data_aux.append(x - min_x)
+            data_aux.append(y - min_y)
 
         x1 = int(min(x_) * W) - 10
         y1 = int(min(y_) * H) - 10
+        x2 = int(max(x_) * W) + 10
+        y2 = int(max(y_) * H) + 10
 
-        x2 = int(max(x_) * W) - 10
-        y2 = int(max(y_) * H) - 10
-
-        prediction = model.predict([np.asarray(data_aux)])
-
-        predicted_character = labels_dict[int(prediction[0])]
-
-        # Check if this is a new character or same as current
-        if predicted_character != current_character:
-            # New character detected, reset timer
-            current_character = predicted_character
-            character_start_time = time.time()
+        if len(data_aux) == 42:
+            prediction = model_one.predict([np.asarray(data_aux)])
+            predicted_character = default_labels_one[int(prediction[0])]
         else:
-            # Same character, check if held long enough
-            if character_start_time is not None:
-                elapsed_time = time.time() - character_start_time
-                if elapsed_time >= HOLD_DURATION and current_character != previous_detected:
-                    # Character held long enough and is different from last added
-                    st.session_state.signs += current_character
-                    previous_detected = current_character
-                    print(f"Added '{current_character}' to detected letters: {letters_detected}")
+            st.error(f"Error: {len(data_aux)} features (need 42)")
 
-        # Display the predicted character and progress
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 0), 4)
-        cv2.putText(frame, predicted_character, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 0), 3,
-                    cv2.LINE_AA)
+        mp_drawing.draw_landmarks(
+            frame,
+            hand_landmarks,
+            mp_hands.HAND_CONNECTIONS,
+            mp_drawing_styles.get_default_hand_landmarks_style(),
+            mp_drawing_styles.get_default_hand_connections_style()
+        )
+    elif results.multi_hand_landmarks and len(results.multi_hand_landmarks) == 2:
+        st.session_state.mode_text = "Mode: TWO-HAND"
+        data_aux = []
+        all_x = []
+        all_y = []
 
-        # Show hold progress bar
-        if character_start_time is not None and current_character != previous_detected:
-            elapsed_time = time.time() - character_start_time
+        # Process both hands and combine their features (same as your 2-hand code)
+        for hand_landmarks in results.multi_hand_landmarks:
+            x_hand = []
+            y_hand = []
+
+            # Draw landmarks
+            mp_drawing.draw_landmarks(
+                frame,
+                hand_landmarks,
+                mp_hands.HAND_CONNECTIONS,
+                mp_drawing_styles.get_default_hand_landmarks_style(),
+                mp_drawing_styles.get_default_hand_connections_style()
+            )
+
+            # Collect coords
+            for lm in hand_landmarks.landmark:
+                x = lm.x
+                y = lm.y
+                x_hand.append(x)
+                y_hand.append(y)
+                all_x.append(x)
+                all_y.append(y)
+
+            # Normalize per-hand
+            min_x_hand = min(x_hand)
+            min_y_hand = min(y_hand)
+
+            for lm in hand_landmarks.landmark:
+                x = lm.x
+                y = lm.y
+                data_aux.append(x - min_x_hand)
+                data_aux.append(y - min_y_hand)
+
+        # Combined bounding box across both hands
+        x1 = int(min(all_x) * W) - 10
+        y1 = int(min(all_y) * H) - 10
+        x2 = int(max(all_x) * W) + 10
+        y2 = int(max(all_y) * H) + 10
+
+        if len(data_aux) == 84:
+            prediction = model_two.predict([np.asarray(data_aux)])
+            predicted_character = default_labels_two[int(prediction[0])]
+        else:
+            st.error(f"Error: {len(data_aux)} features (need 84)")
+    else:
+        # No hand detected, reset tracking
+        st.session_state.current_character = ""
+        st.session_state.character_start_time = None
+
+    if predicted_character is not None:
+        # New or existing character?
+        if predicted_character != st.session_state.current_character:
+            st.session_state.current_character = predicted_character
+            st.session_state.character_start_time = time.time()
+        else:
+            if st.session_state.character_start_time is not None:
+                elapsed_time = time.time() - st.session_state.character_start_time
+                if elapsed_time >= HOLD_DURATION and st.session_state.current_character != st.session_state.previous_detected:
+                    st.session_state.letters_detected += ' ' + st.session_state.current_character
+                    st.session_state.previous_detected = st.session_state.current_character
+                    print(f"Added '{st.session_state.current_character}' to detected letters: {st.session_state.letters_detected}")
+
+        # Draw bounding box and predicted char
+        if x1 is not None and y1 is not None and x2 is not None and y2 is not None:
+            color = (0, 0, 0) if st.session_state.mode_text.endswith("ONE-HAND") else (0, 255, 0)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 4)
+            cv2.putText(frame, predicted_character, (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.3, color, 3, cv2.LINE_AA)
+
+        # Progress bar (only when different from last added)
+        if st.session_state.character_start_time is not None and st.session_state.current_character != st.session_state.previous_detected and x1 is not None:
+            elapsed_time = time.time() - st.session_state.character_start_time
             progress = min(elapsed_time / HOLD_DURATION, 1.0)
             bar_width = int((x2 - x1) * progress)
             cv2.rectangle(frame, (x1, y2 + 5), (x1 + bar_width, y2 + 15), (0, 255, 0), -1)
             cv2.rectangle(frame, (x1, y2 + 5), (x2, y2 + 15), (0, 0, 0), 2)
-    else:
-        # No hand detected, reset tracking
-        current_character = ""
-        character_start_time = None
 
     # Display detected letters on screen
-    cv2.putText(frame, f"Detected: {letters_detected}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2,
+    cv2.putText(frame, f"Detected: {st.session_state.letters_detected}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2,
                 cv2.LINE_AA)
 
 
@@ -220,5 +285,5 @@ while st.session_state.video_capture is not None:
     if st.session_state.flip_camera:
         frame_rgb = cv2.flip(frame_rgb, 1)  # Mirror the frame for a more natural webcam feel
     infer(frame_rgb)
-    signs_placeholder.markdown(f"<div style='font-size:24px; border:2px solid black; padding:10px; min-height:100px;'>{st.session_state.signs}</div>", unsafe_allow_html=True)
+    signs_placeholder.markdown(f"<div style='font-size:24px; border:2px solid black; padding:10px; min-height:100px;'>{st.session_state.letters_detected}</div>", unsafe_allow_html=True)
     frame_placeholder.image(frame_rgb, channels="RGB", width='stretch')
