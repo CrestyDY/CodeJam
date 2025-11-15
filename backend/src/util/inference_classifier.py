@@ -5,8 +5,13 @@ import mediapipe as mp
 import numpy as np
 import threading
 from src.ai.get_llm_response import get_response
+import os
 
-model_dict = pickle.load(open('./model.p', 'rb'))
+# Get the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(SCRIPT_DIR, 'model.p')
+
+model_dict = pickle.load(open(MODEL_PATH, 'rb'))
 model = model_dict['model']
 
 cap = cv2.VideoCapture(0)

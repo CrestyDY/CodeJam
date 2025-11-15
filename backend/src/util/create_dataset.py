@@ -5,14 +5,16 @@ import mediapipe as mp
 import cv2
 import matplotlib.pyplot as plt
 
+# Get the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
+PICKLE_PATH = os.path.join(SCRIPT_DIR, 'data.pickle')
 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 
 hands = mp_hands.Hands(static_image_mode=True, min_detection_confidence=0.2, max_num_hands=2)
-
-DATA_DIR = './data'
 
 data = []
 labels = []
@@ -69,7 +71,7 @@ print(f"Processed {len(data)} images successfully")
 print(f"Skipped {skipped_images} images")
 print(f"Feature vector size: {len(data[0]) if data else 0} features (84 = 2 hands * 42 features)")
 
-f = open('data.pickle', 'wb')
+f = open(PICKLE_PATH, 'wb')
 pickle.dump({'data': data, 'labels': labels}, f)
 f.close()
 print(f"Saved {len(data)} samples to data.pickle")
