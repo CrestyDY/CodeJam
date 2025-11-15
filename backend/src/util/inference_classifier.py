@@ -4,7 +4,8 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import threading
-from src.ai.get_llm_response import get_response
+import json
+from src.ai.get_llm_response import get_response, check_if_sentence_complete
 import os
 
 # Get the directory where this script is located
@@ -14,7 +15,7 @@ MODEL_PATH = os.path.join(SCRIPT_DIR, 'model.p')
 model_dict = pickle.load(open(MODEL_PATH, 'rb'))
 model = model_dict['model']
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(4)
 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
@@ -28,20 +29,52 @@ current_character = ""
 character_start_time = None
 HOLD_DURATION = 1.5  # seconds - adjust this value to change how long to hold
 
+# Sentence completion tracking
+sentence_completion_status = {}  # Initialize as empty dict instead of None
+last_checked_input = ""  # Track what we last checked
+status_lock = threading.Lock()  # Thread lock for safe access
+
 labels_dict = {0: 'HI ', 1: 'MOM ', 2: 'HELLO ', 3: 'WORLD ', 4: ':) '}
 
 def run_llm_in_background(user_input):
     """Run the LLM call in a separate thread to avoid blocking the video feed"""
+    global sentence_completion_status, last_checked_input
+
     def thread_target():
+        global sentence_completion_status, last_checked_input
         try:
-            # get_response is now synchronous but uses a persistent event loop internally
-            response = get_response(user_input)
-            if response:
+            # Check if sentence is complete
+            completion_response = check_if_sentence_complete(user_input)
+
+            # Parse the JSON response
+            try:
+                completion_data = json.loads(completion_response)
+
+                # Thread-safe update
+                with status_lock:
+                    sentence_completion_status = completion_data
+                    last_checked_input = user_input
+
                 print(f"\n{'='*60}")
-                print(f"📝 LLM Response for '{user_input}':")
+                print(f"🔍 Sentence Completion Check for '{user_input}':")
+                print(f"   Complete: {completion_data.get('is_complete', 'unknown')}")
+                print(f"   Reason: {completion_data.get('reason', 'no reason provided')}")
                 print(f"{'='*60}")
-                print(response)
-                print(f"{'='*60}\n")
+
+                # If sentence looks complete, also get the interpretations
+                if completion_data.get('is_complete', False):
+                    response = get_response(user_input)
+                    if response:
+                        print(f"\n{'='*60}")
+                        print(f"📝 LLM Interpretations:")
+                        print(f"{'='*60}")
+                        print(response)
+                        print(f"{'='*60}\n")
+            except json.JSONDecodeError:
+                print(f"\n⚠️ Could not parse completion response as JSON: {completion_response}\n")
+                with status_lock:
+                    sentence_completion_status = {"is_complete": False, "reason": "Parse error"}
+
         except Exception as e:
             print(f"\n❌ Error getting LLM response: {e}\n")
     
@@ -161,6 +194,24 @@ while True:
     # Display detected letters on screen
     cv2.putText(frame, f"Detected: {letters_detected}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2,
                 cv2.LINE_AA)
+
+    # Display sentence completion status with thread-safe access
+    with status_lock:
+        if sentence_completion_status:  # Check if dict is not empty
+            completion_text = "Complete ✓" if sentence_completion_status.get('is_complete', False) else "Incomplete..."
+            reason = sentence_completion_status.get('reason', 'N/A')
+
+            # Use different colors based on completion
+            color = (0, 255, 0) if sentence_completion_status.get('is_complete', False) else (255, 255, 0)
+
+            cv2.putText(frame, f"Status: {completion_text}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
+                        cv2.LINE_AA)
+
+            # Truncate reason if too long
+            if len(reason) > 50:
+                reason = reason[:47] + "..."
+            cv2.putText(frame, f"{reason}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
+                        cv2.LINE_AA)
 
     cv2.imshow('frame', frame)
     cv2.waitKey(1)

@@ -1,4 +1,5 @@
 .idea
 .venv
 backend/etc/.env
-
+__backend/src/__pycache__/
+__backend/src/ai/__pycache__/

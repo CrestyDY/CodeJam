@@ -4,7 +4,7 @@ import threading
 from concurrent.futures import Future
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-from src.ai.prompts import prompt1
+from src.ai.prompts import prompt1, check_sentence_complete
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "..", "etc", ".env"))
@@ -137,3 +137,8 @@ def get_response(user_input):
     response = get_llm_response(prompt_text)
     return response
 
+def check_if_sentence_complete(user_input):
+    """Check if the current input looks like a complete sentence using LLM"""
+    prompt_text = check_sentence_complete(user_input)
+    response = get_llm_response(prompt_text)
+    return response
