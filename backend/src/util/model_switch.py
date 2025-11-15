@@ -6,8 +6,8 @@ import numpy as np
 
 #Load both models
 # Change filenames if you save them differently
-model_one_dict = pickle.load(open('src/util/models/model_one_hand.p', 'rb'))   # 42-feature model
-model_two_dict = pickle.load(open('src/util/models/model_two_hands.p', 'rb'))   # 84-feature model
+model_one_dict = pickle.load(open('models/model_one_hand.p', 'rb'))   # 42-feature model
+model_two_dict = pickle.load(open('models/model_two_hands.p', 'rb'))   # 84-feature model
 
 model_one = model_one_dict['model']
 model_two = model_two_dict['model']
@@ -33,7 +33,9 @@ current_character = ""
 character_start_time = None
 HOLD_DURATION = 1.5  # seconds to confirm a character
 
-labels_dict = {0: 'A', 1: 'B', 2: 'C', 3: 'D', 4: 'E'}
+#training sets
+default_labels_one = {0: 'HI', 1: 'MY', 2: 'H', 3: 'E'}   # one-hand model
+default_labels_two = {0: 'NAME', 1: 'interpreter', 2: 'world',3:'L'}   # two-hand model
 
 print("Starting auto-switch inference: 1 hand -> 1-hand model, 2 hands -> 2-hand model.")
 print("Press 'q' to quit.")
@@ -90,7 +92,7 @@ while True:
 
             if len(data_aux) == 42:
                 prediction = model_one.predict([np.asarray(data_aux)])
-                predicted_character = labels_dict[int(prediction[0])]
+                predicted_character = default_labels_one[int(prediction[0])]
             else:
                 status_text = f"Error: {len(data_aux)} features (need 42)"
 
@@ -150,7 +152,7 @@ while True:
 
             if len(data_aux) == 84:
                 prediction = model_two.predict([np.asarray(data_aux)])
-                predicted_character = labels_dict[int(prediction[0])]
+                predicted_character = default_labels_two[int(prediction[0])]
             else:
                 status_text = f"Error: {len(data_aux)} features (need 84)"
 

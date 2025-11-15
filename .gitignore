@@ -3,3 +3,6 @@
 backend/etc/.env
 backend/src/__pycache__/
 backend/src/ai/__pycache__/
+backend/src/util/data
+backend/src/.DS_Store
+backend/src/util/.DS_Store

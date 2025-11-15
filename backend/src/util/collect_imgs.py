@@ -1,122 +1,160 @@
 import os
-import json
 import cv2
+import json
 import mediapipe as mp
-from time import sleep
 
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
-
-hands = mp_hands.Hands(static_image_mode=True, min_detection_confidence=0.3, max_num_hands=2)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
+BASE_DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'asl.json')
+if not os.path.exists(BASE_DATA_DIR):
+    os.makedirs(BASE_DATA_DIR)
 
 with open(CONFIG_PATH, 'r') as f:
     asl_config = json.load(f)
     number_of_classes = len(asl_config)
     print(f"Loaded {number_of_classes} sign language gestures from config")
 
+dataset_size = 100              # images per class (per model)
 
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
+# change camera index if needed
+cap = cv2.VideoCapture(1)
 
-dataset_size = 100
+# ========== MEDIAPIPE SETUP ==========
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
 
-cap = cv2.VideoCapture(0)
+hands = mp_hands.Hands(
+    static_image_mode=False,
+    min_detection_confidence=0.3,
+    min_tracking_confidence=0.3,
+    max_num_hands=2
+)
+
+# ========== DIRECTORY SETUP ==========
+
+# We will store:
+#  ./data/one_hand/<class_id>/
+#  ./data/two_hands/<class_id>/
+one_hand_root = os.path.join(BASE_DATA_DIR, "one_hand")
+two_hands_root = os.path.join(BASE_DATA_DIR, "two_hands")
+
+os.makedirs(one_hand_root, exist_ok=True)
+os.makedirs(two_hands_root, exist_ok=True)
+
 for j in range(number_of_classes):
-    if not os.path.exists(os.path.join(DATA_DIR, str(j))):
-        os.makedirs(os.path.join(DATA_DIR, str(j)))
+    os.makedirs(os.path.join(one_hand_root, str(j)), exist_ok=True)
+    os.makedirs(os.path.join(two_hands_root, str(j)), exist_ok=True)
 
-    print('Collecting data for word {}'.format(asl_config[str(j)]))
+# ========== DATA COLLECTION ==========
 
-    done = False
+for j in range(number_of_classes):
+    one_class_dir = os.path.join(one_hand_root, str(j))
+    two_class_dir = os.path.join(two_hands_root, str(j))
+
+    print(f'\n=== Collecting data for class {j} ===')
+    print('Show the gesture for this class in front of the camera.')
+    print('1 hand → goes to ONE-HAND dataset')
+    print('2 hands → goes to TWO-HANDS dataset')
+    print(f'Aim: {dataset_size} images for ONE-HAND, {dataset_size} for TWO-HANDS.')
+
+    # -------- Ready screen --------
     while True:
         ret, frame = cap.read()
         if not ret:
-            continue
-        
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            print("Failed to read from camera.")
+            break
+
+        display_frame = frame.copy()
+        H, W, _ = frame.shape
+        frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
         results = hands.process(frame_rgb)
-        
-        # Check if both hands are detected
-        num_hands = len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0
-        
-        # Draw hands if detected
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
                 mp_drawing.draw_landmarks(
-                    frame,
+                    display_frame,
                     hand_landmarks,
                     mp_hands.HAND_CONNECTIONS,
                     mp_drawing_styles.get_default_hand_landmarks_style(),
-                    mp_drawing_styles.get_default_hand_connections_style())
-        
-        # Display status
-        status_text = f'Ready? Press "Q" ! Hands: {num_hands}/2'
-        color = (0, 255, 0) if num_hands == 2 else (0, 0, 255)
-        cv2.putText(frame, status_text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2, cv2.LINE_AA)
-        cv2.putText(frame, 'Need BOTH hands to collect data!', (50, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
-        
-        cv2.imshow('frame', frame)
-        if cv2.waitKey(25) == ord('q'):
-            break
-    sleep(1)
+                    mp_drawing_styles.get_default_hand_connections_style()
+            )
+        msg = f'Class {j} | Press "Q" to start capturing'
+        cv2.putText(display_frame, msg, (40, 50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.imshow('frame', display_frame)
 
-    counter = 0
-    while counter < dataset_size:
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            break
+
+    # -------- Capture loop --------
+    one_count = 0
+    two_count = 0
+
+    while one_count < dataset_size or two_count < dataset_size:
         ret, frame = cap.read()
         if not ret:
-            continue
-        
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            print("Failed to read from camera.")
+            break
+
+        # keep a clean copy for saving
+        clean_frame = frame.copy()
+        display_frame = frame.copy()
+
+        H, W, _ = frame.shape
+        frame_rgb = cv2.cvtColor(clean_frame, cv2.COLOR_BGR2RGB)
         results = hands.process(frame_rgb)
-        
-        # Only capture if both hands are detected
-        num_hands = len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0
-        
-        if num_hands == 2:
-            # Verify detection one more time with the actual frame we're about to save
-            # This ensures consistency with static_image_mode=True
-            verify_results = hands.process(frame_rgb)
-            verify_num_hands = len(verify_results.multi_hand_landmarks) if verify_results.multi_hand_landmarks else 0
-            
-            if verify_num_hands == 2:
-                # Save the original frame WITHOUT annotations
-                cv2.imwrite(os.path.join(DATA_DIR, str(j), '{}.jpg'.format(counter)), frame)
-                
-                # Draw both hands for display only
-                frame_display = frame.copy()
-                if results.multi_hand_landmarks:
-                    for hand_landmarks in results.multi_hand_landmarks:
-                        mp_drawing.draw_landmarks(
-                            frame_display,
-                            hand_landmarks,
-                            mp_hands.HAND_CONNECTIONS,
-                            mp_drawing_styles.get_default_hand_landmarks_style(),
-                            mp_drawing_styles.get_default_hand_connections_style())
-                
-                # Display collection status
-                status_text = f'Collecting: {counter + 1}/{dataset_size} (Both hands detected)'
-                cv2.putText(frame_display, status_text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2, cv2.LINE_AA)
-                cv2.imshow('frame', frame_display)
-                cv2.waitKey(25)
-                counter += 1
+
+        mode_text = "No hands"
+        num_hands = 0
+
+        # ===== detect + draw landmarks on display_frame =====
+        if results.multi_hand_landmarks:
+            num_hands = len(results.multi_hand_landmarks)
+
+            for hand_landmarks in results.multi_hand_landmarks:
+                mp_drawing.draw_landmarks(
+                    display_frame,
+                    hand_landmarks,
+                    mp_hands.HAND_CONNECTIONS,
+                    mp_drawing_styles.get_default_hand_landmarks_style(),
+                    mp_drawing_styles.get_default_hand_connections_style()
+                )
+
+            if num_hands == 1:
+                mode_text = "ONE HAND"
+            elif num_hands == 2:
+                mode_text = "TWO HANDS"
             else:
-                # Detection failed on verification, skip this frame
-                status_text = f'Verification failed: {verify_num_hands}/2 hands'
-                cv2.putText(frame, status_text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 165, 255), 2, cv2.LINE_AA)
-                cv2.putText(frame, f'Collected: {counter}/{dataset_size}', (50, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-                cv2.imshow('frame', frame)
-                cv2.waitKey(25)
-        else:
-            # Show warning if not both hands
-            status_text = f'Need BOTH hands! Currently: {num_hands}/2'
-            cv2.putText(frame, status_text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA)
-            cv2.putText(frame, f'Collected: {counter}/{dataset_size}', (50, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-            cv2.imshow('frame', frame)
-            cv2.waitKey(25)
+                mode_text = f"{num_hands} hands (ignored)"
+
+        status = f'Class {j} | 1H: {one_count}/{dataset_size}  2H: {two_count}/{dataset_size}'
+        cv2.putText(display_frame, status, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(display_frame, f'Detected: {mode_text}', (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(display_frame, 'Press ESC to skip this class', (10, H - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+
+        cv2.imshow('frame', display_frame)
+
+        key = cv2.waitKey(25) & 0xFF
+        if key == 27:  # ESC → skip rest of this class
+            print("Skipping remaining images for this class.")
+            break
+
+        # ===== save based on # of hands (use clean_frame, not display_frame) =====
+        if results.multi_hand_landmarks:
+            if num_hands == 1 and one_count < dataset_size:
+                img_path = os.path.join(one_class_dir, f'{one_count}.jpg')
+                cv2.imwrite(img_path, clean_frame)
+                one_count += 1
+
+            elif num_hands == 2 and two_count < dataset_size:
+                img_path = os.path.join(two_class_dir, f'{two_count}.jpg')
+                cv2.imwrite(img_path, clean_frame)
+                two_count += 1
+
+    print(f'Finished class {j}: ONE-HAND={one_count}, TWO-HANDS={two_count}')
 
 cap.release()
 cv2.destroyAllWindows()
