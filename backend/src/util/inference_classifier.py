@@ -450,3 +450,4 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
 # Main entry point
 if __name__ == "__main__":
     run_sign_language_classifier()
+
