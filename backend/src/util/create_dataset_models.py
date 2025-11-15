@@ -182,35 +182,53 @@ def save_dataset(data, labels, out_path):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Build ASL datasets for one-hand and/or two-hands models")
+    parser = argparse.ArgumentParser(description="Build ASL datasets for 4 models: letters, numbers, words_one_hand, words_two_hands")
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["one", "two", "both"],
-        default="both",
-        help="Which dataset to build: 'one' (one-hand), 'two' (two-hands), or 'both' (default)"
+        choices=["letters", "numbers", "words_one_hand", "words_two_hands", "all"],
+        default="all",
+        help="Which dataset to build: 'letters' (one-hand), 'numbers' (one-hand), 'words_one_hand', 'words_two_hands', or 'all' (default)"
     )
 
     args = parser.parse_args()
 
-    ONE_HAND_DIR = os.path.join(BASE_DIR, "one_hand")
-    TWO_HANDS_DIR = os.path.join(BASE_DIR, "two_hands")
+    LETTERS_DIR = os.path.join(BASE_DIR, "letters")
+    NUMBERS_DIR = os.path.join(BASE_DIR, "numbers")
+    WORDS_ONE_HAND_DIR = os.path.join(BASE_DIR, "words_one_hand")
+    WORDS_TWO_HANDS_DIR = os.path.join(BASE_DIR, "words_two_hands")
 
     # Build datasets based on mode
-    if args.mode in ["one", "both"]:
-        print(f"\n=== Building ONE-HAND dataset from {ONE_HAND_DIR} ===")
-        data_one, labels_one = build_dataset_one_hand(ONE_HAND_DIR)
-        if data_one:
-            save_dataset(data_one, labels_one, "one_hand_data.pickle")
+    if args.mode in ["letters", "all"]:
+        print(f"\n=== Building LETTERS dataset from {LETTERS_DIR} ===")
+        data_letters, labels_letters = build_dataset_one_hand(LETTERS_DIR)
+        if data_letters:
+            save_dataset(data_letters, labels_letters, "letters_data.pickle")
         else:
-            print("[ONE-HAND] No data collected. Check your directory and images.")
+            print("[LETTERS] No data collected. Check your directory and images.")
 
-    if args.mode in ["two", "both"]:
-        print(f"\n=== Building TWO-HANDS dataset from {TWO_HANDS_DIR} ===")
-        data_two, labels_two = build_dataset_two_hands(TWO_HANDS_DIR)
-        if data_two:
-            save_dataset(data_two, labels_two, "two_hands_data.pickle")
+    if args.mode in ["numbers", "all"]:
+        print(f"\n=== Building NUMBERS dataset from {NUMBERS_DIR} ===")
+        data_numbers, labels_numbers = build_dataset_one_hand(NUMBERS_DIR)
+        if data_numbers:
+            save_dataset(data_numbers, labels_numbers, "numbers_data.pickle")
         else:
-            print("[TWO-HANDS] No data collected. Check your directory and images.")
+            print("[NUMBERS] No data collected. Check your directory and images.")
+
+    if args.mode in ["words_one_hand", "all"]:
+        print(f"\n=== Building WORDS (ONE-HAND) dataset from {WORDS_ONE_HAND_DIR} ===")
+        data_words_one_hand, labels_words_one_hand = build_dataset_one_hand(WORDS_ONE_HAND_DIR)
+        if data_words_one_hand:
+            save_dataset(data_words_one_hand, labels_words_one_hand, "words_one_hand_data.pickle")
+        else:
+            print("[WORDS ONE-HAND] No data collected. Check your directory and images.")
+
+    if args.mode in ["words_two_hands", "all"]:
+        print(f"\n=== Building WORDS (TWO-HANDS) dataset from {WORDS_TWO_HANDS_DIR} ===")
+        data_words_two_hands, labels_words_two_hands = build_dataset_two_hands(WORDS_TWO_HANDS_DIR)
+        if data_words_two_hands:
+            save_dataset(data_words_two_hands, labels_words_two_hands, "words_two_hands_data.pickle")
+        else:
+            print("[WORDS TWO-HANDS] No data collected. Check your directory and images.")
 
     print("\n✓ Done building datasets.")

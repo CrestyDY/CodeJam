@@ -1,5 +1,6 @@
 import pickle
 import os
+import argparse
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
@@ -10,33 +11,67 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(SCRIPT_DIR, 'data')
 MODEL_PATH = os.path.join(SCRIPT_DIR, "models")
 
-data_dict1 = pickle.load(open(os.path.join(DATA_PATH, 'one_hand_data.pickle'), 'rb'))
-data_dict2 = pickle.load(open(os.path.join(DATA_PATH, 'two_hands_data.pickle'), 'rb'))
+def train_model(dataset_name, model_name, description):
+    """Train a single model from a dataset pickle file"""
+    try:
+        data_dict = pickle.load(open(os.path.join(DATA_PATH, dataset_name), 'rb'))
+        data = np.asarray(data_dict['data'])
+        labels = np.asarray(data_dict['labels'])
 
-data1 = np.asarray(data_dict1['data'])
-labels1 = np.asarray(data_dict1['labels'])
-data2= np.asarray(data_dict2['data'])
-labels2 = np.asarray(data_dict2['labels'])
+        x_train, x_test, y_train, y_test = train_test_split(
+            data, labels, test_size=0.2, shuffle=True, stratify=labels
+        )
 
-x_train1, x_test1, y_train1, y_test1 = train_test_split(data1, labels1, test_size=0.2, shuffle=True, stratify=labels1)
-x_train2, x_test2, y_train2, y_test2 = train_test_split(data2, labels2, test_size=0.2, shuffle=True, stratify=labels2)
-model1 = RandomForestClassifier()
-model2 = RandomForestClassifier()
+        model = RandomForestClassifier()
+        model.fit(x_train, y_train)
 
-model1.fit(x_train1, y_train1)
-model2.fit(x_train2, y_train2)
+        y_predict = model.predict(x_test)
+        score = accuracy_score(y_predict, y_test)
 
-y_predict1 = model1.predict(x_test1)
-y_predict2 = model2.predict(x_test2)
+        print(f'✓ {description}: {score * 100:.2f}% accuracy')
 
-score1 = accuracy_score(y_predict1, y_test1)
-score2 = accuracy_score(y_predict2, y_test2)
-print('{}% of one-handed samples were classified correctly !'.format(score1 * 100))
+        # Save model
+        with open(os.path.join(MODEL_PATH, model_name), 'wb') as f:
+            pickle.dump({'model': model}, f)
 
-print('{}% of two-handed samples were classified correctly !'.format(score2 * 100))
-f1 = open(os.path.join(MODEL_PATH, 'model_one_hand.p'), 'wb')
-f2 = open(os.path.join(MODEL_PATH, 'model_two_hands.p'), 'wb')
-pickle.dump({'model': model1}, f1)
-pickle.dump({'model': model2}, f2)
-f1.close()
-f2.close()
+        return True
+    except FileNotFoundError:
+        print(f'✗ {description}: Dataset file not found ({dataset_name})')
+        return False
+    except Exception as e:
+        print(f'✗ {description}: Error training model - {e}')
+        return False
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train ASL classifier models")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["letters", "numbers", "words_one_hand", "words_two_hands", "all"],
+        default="all",
+        help="Which model to train: 'letters', 'numbers', 'words_one_hand', 'words_two_hands', or 'all' (default)"
+    )
+
+    args = parser.parse_args()
+
+    print("=" * 60)
+    print("Training ASL Classifier Models")
+    print("=" * 60)
+
+    # Train models based on mode
+    if args.mode in ["letters", "all"]:
+        train_model("letters_data.pickle", "model_letters.p", "LETTERS (one-hand)")
+
+    if args.mode in ["numbers", "all"]:
+        train_model("numbers_data.pickle", "model_numbers.p", "NUMBERS (one-hand)")
+
+    if args.mode in ["words_one_hand", "all"]:
+        train_model("words_one_hand_data.pickle", "model_words_one_hand.p", "WORDS (one-hand)")
+
+    if args.mode in ["words_two_hands", "all"]:
+        train_model("words_two_hands_data.pickle", "model_words_two_hands.p", "WORDS (two-hands)")
+
+    print("=" * 60)
+    print("Training complete!")
+    print("=" * 60)
+
