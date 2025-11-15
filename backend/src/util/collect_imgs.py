@@ -1,23 +1,58 @@
 import os
 import cv2
 import json
+import sys
+import argparse
 import mediapipe as mp
+
+# ========== ARGUMENT PARSING ==========
+parser = argparse.ArgumentParser(description='Collect ASL gesture images for training')
+parser.add_argument('mode', choices=['one', 'two'], 
+                    help='Collection mode: "one" for one-hand gestures, "two" for two-hand gestures')
+parser.add_argument('--config', type=str, default=None,
+                    help='Path to custom config file (default: asl_one_hand.json for one, asl.json for two)')
+parser.add_argument('--camera', type=int, default=1,
+                    help='Camera index (default: 1)')
+parser.add_argument('--dataset-size', type=int, default=100,
+                    help='Number of images to collect per class (default: 100)')
+
+args = parser.parse_args()
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'asl.json')
+
+# Determine mode and config
+MODE = args.mode
+REQUIRED_HANDS = 1 if MODE == 'one' else 2
+MODE_NAME = "ONE-HAND" if MODE == 'one' else "TWO-HAND"
+
+# Set default config based on mode
+if args.config:
+    CONFIG_PATH = args.config
+else:
+    if MODE == 'one':
+        CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'asl_one_hand.json')
+    else:
+        CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'asl.json')
+
 if not os.path.exists(BASE_DATA_DIR):
     os.makedirs(BASE_DATA_DIR)
 
-with open(CONFIG_PATH, 'r') as f:
-    asl_config = json.load(f)
-    number_of_classes = len(asl_config)
-    print(f"Loaded {number_of_classes} sign language gestures from config")
+# Load config
+try:
+    with open(CONFIG_PATH, 'r') as f:
+        asl_config = json.load(f)
+        number_of_classes = len(asl_config)
+        print(f"Loaded {number_of_classes} {MODE_NAME} sign language gestures from {os.path.basename(CONFIG_PATH)}")
+        print(f"Mode: {MODE_NAME} (requires exactly {REQUIRED_HANDS} hand(s))")
+except FileNotFoundError:
+    print(f"Error: Config file not found at {CONFIG_PATH}")
+    sys.exit(1)
 
-dataset_size = 100              # images per class (per model)
+dataset_size = args.dataset_size
 
-# change camera index if needed
-cap = cv2.VideoCapture(1)
+# Setup camera
+cap = cv2.VideoCapture(0)
 
 # ========== MEDIAPIPE SETUP ==========
 mp_hands = mp.solutions.hands
@@ -33,30 +68,29 @@ hands = mp_hands.Hands(
 
 # ========== DIRECTORY SETUP ==========
 
-# We will store:
-#  ./data/one_hand/<class_id>/
-#  ./data/two_hands/<class_id>/
-one_hand_root = os.path.join(BASE_DATA_DIR, "one_hand")
-two_hands_root = os.path.join(BASE_DATA_DIR, "two_hands")
+# Determine output directory based on mode
+if MODE == 'one':
+    output_root = os.path.join(BASE_DATA_DIR, "one_hand")
+else:
+    output_root = os.path.join(BASE_DATA_DIR, "two_hands")
 
-os.makedirs(one_hand_root, exist_ok=True)
-os.makedirs(two_hands_root, exist_ok=True)
+os.makedirs(output_root, exist_ok=True)
 
+# Create class directories
 for j in range(number_of_classes):
-    os.makedirs(os.path.join(one_hand_root, str(j)), exist_ok=True)
-    os.makedirs(os.path.join(two_hands_root, str(j)), exist_ok=True)
+    os.makedirs(os.path.join(output_root, str(j)), exist_ok=True)
+
+print(f"Saving images to: {output_root}")
 
 # ========== DATA COLLECTION ==========
 
 for j in range(number_of_classes):
-    one_class_dir = os.path.join(one_hand_root, str(j))
-    two_class_dir = os.path.join(two_hands_root, str(j))
+    class_dir = os.path.join(output_root, str(j))
+    class_label = asl_config.get(str(j), f"Class {j}")
 
-    print(f'\n=== Collecting data for class {j} ===')
-    print('Show the gesture for this class in front of the camera.')
-    print('1 hand → goes to ONE-HAND dataset')
-    print('2 hands → goes to TWO-HANDS dataset')
-    print(f'Aim: {dataset_size} images for ONE-HAND, {dataset_size} for TWO-HANDS.')
+    print(f'\n=== Collecting data for class {j}: "{class_label}" ===')
+    print(f'Mode: {MODE_NAME} (show exactly {REQUIRED_HANDS} hand(s))')
+    print(f'Goal: {dataset_size} images for this class')
 
     # -------- Ready screen --------
     while True:
@@ -78,8 +112,11 @@ for j in range(number_of_classes):
                     mp_drawing_styles.get_default_hand_landmarks_style(),
                     mp_drawing_styles.get_default_hand_connections_style()
             )
-        msg = f'Class {j} | Press "Q" to start capturing'
-        cv2.putText(display_frame, msg, (40, 50),
+        msg = f'Class {j}: "{class_label}" | {MODE_NAME} MODE'
+        cv2.putText(display_frame, msg, (40, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
+        msg2 = f'Press "Q" to start capturing'
+        cv2.putText(display_frame, msg2, (40, 70),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2, cv2.LINE_AA)
         cv2.imshow('frame', display_frame)
 
@@ -87,10 +124,9 @@ for j in range(number_of_classes):
             break
 
     # -------- Capture loop --------
-    one_count = 0
-    two_count = 0
+    img_count = 0
 
-    while one_count < dataset_size or two_count < dataset_size:
+    while img_count < dataset_size:
         ret, frame = cap.read()
         if not ret:
             print("Failed to read from camera.")
@@ -127,11 +163,16 @@ for j in range(number_of_classes):
             else:
                 mode_text = f"{num_hands} hands (ignored)"
 
-        status = f'Class {j} | 1H: {one_count}/{dataset_size}  2H: {two_count}/{dataset_size}'
+        # Color code based on whether correct number of hands
+        hands_color = (0, 255, 0) if num_hands == REQUIRED_HANDS else (0, 0, 255)
+        
+        status = f'Class {j}: "{class_label}" | Captured: {img_count}/{dataset_size}'
         cv2.putText(display_frame, status, (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(display_frame, f'Detected: {mode_text}', (10, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, hands_color, 2, cv2.LINE_AA)
+        cv2.putText(display_frame, f'Need: {REQUIRED_HANDS} hand(s)', (10, 90),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2, cv2.LINE_AA)
         cv2.putText(display_frame, 'Press ESC to skip this class', (10, H - 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
 
@@ -142,19 +183,21 @@ for j in range(number_of_classes):
             print("Skipping remaining images for this class.")
             break
 
-        # ===== save based on # of hands (use clean_frame, not display_frame) =====
-        if results.multi_hand_landmarks:
-            if num_hands == 1 and one_count < dataset_size:
-                img_path = os.path.join(one_class_dir, f'{one_count}.jpg')
-                cv2.imwrite(img_path, clean_frame)
-                one_count += 1
+        # ===== save image if correct number of hands detected =====
+        if results.multi_hand_landmarks and num_hands == REQUIRED_HANDS:
+            img_path = os.path.join(class_dir, f'{img_count}.jpg')
+            cv2.imwrite(img_path, clean_frame)
+            img_count += 1
+            print(f"  Saved image {img_count}/{dataset_size}")
 
-            elif num_hands == 2 and two_count < dataset_size:
-                img_path = os.path.join(two_class_dir, f'{two_count}.jpg')
-                cv2.imwrite(img_path, clean_frame)
-                two_count += 1
-
-    print(f'Finished class {j}: ONE-HAND={one_count}, TWO-HANDS={two_count}')
+    print(f'Finished class {j}: "{class_label}" - Collected {img_count} images')
 
 cap.release()
 cv2.destroyAllWindows()
+
+print(f"\n{'='*60}")
+print(f"Data collection complete!")
+print(f"Mode: {MODE_NAME}")
+print(f"Output directory: {output_root}")
+print(f"Total classes: {number_of_classes}")
+print(f"{'='*60}")
