@@ -1,3 +1,4 @@
 .idea
 .venv
-backend/src/ai/.env
+backend/etc/.env
+
