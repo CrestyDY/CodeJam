@@ -6,7 +6,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import threading
-from src.ai.get_llm_response import get_response
+from src.ai.get_llm_response import get_response, check_if_sentence_complete, speak_text
 
 
 def run_sign_language_classifier(config_file='asl.json'):
@@ -41,6 +41,12 @@ def run_sign_language_classifier(config_file='asl.json'):
     selected_sentence = ""  # The sentence chosen by the user
     selection_mode = False  # Whether we're in sentence selection mode
     
+    # Sentence completion tracking
+    sentence_completion_status = {}  # Initialize as empty dict
+    last_checked_input = ""  # Track what we last checked
+    last_spoken_input = ""  # Track what we last spoke to avoid repeating
+    status_lock = threading.Lock()  # Thread lock for safe access
+    
     # Load ASL word mappings from config file
     CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', config_file)
     with open(CONFIG_PATH, 'r') as f:
@@ -62,12 +68,15 @@ def run_sign_language_classifier(config_file='asl.json'):
     
     def run_llm_in_background(user_input):
         """Run the LLM call in a separate thread to avoid blocking the video feed"""
+        nonlocal sentence_completion_status, last_checked_input, last_spoken_input, letters_detected
         nonlocal sentence_options, selection_mode, selected_sentence
         
         def thread_target():
+            nonlocal sentence_completion_status, last_checked_input, last_spoken_input, letters_detected
             nonlocal sentence_options, selection_mode, selected_sentence
+            
             try:
-                # get_response is now synchronous but uses a persistent event loop internally
+                # ALWAYS get response interpretations for every word added
                 response = get_response(user_input)
                 if response:
                     print(f"\n{'='*60}")
@@ -76,7 +85,7 @@ def run_sign_language_classifier(config_file='asl.json'):
                     print(response)
                     print(f"{'='*60}\n")
                     
-                    # Parse JSON response
+                    # Parse JSON response for sentence options
                     try:
                         response_data = json.loads(response)
                         if 'sentences' in response_data and isinstance(response_data['sentences'], list):
@@ -87,10 +96,44 @@ def run_sign_language_classifier(config_file='asl.json'):
                             print("   - Use 'Select 1/2/3' gestures to choose a sentence")
                             print("   - OR add more words to make the sentence more complex\n")
                     except json.JSONDecodeError as je:
-                        print(f"Warning: Could not parse JSON response: {je}")
+                        print(f"Warning: Could not parse sentence options from JSON response: {je}")
                         sentence_options = []
                         selection_mode = False
+                
+                # Also check if sentence is complete
+                completion_response = check_if_sentence_complete(user_input)
+                
+                # Parse the completion JSON response
+                try:
+                    completion_data = json.loads(completion_response)
+                    
+                    # Thread-safe update
+                    with status_lock:
+                        sentence_completion_status = completion_data
+                        last_checked_input = user_input
+                    
+                    print(f"\n{'='*60}")
+                    print(f"🔍 Sentence Completion Check for '{user_input}':")
+                    print(f"   Complete: {completion_data.get('is_complete', 'unknown')}")
+                    print(f"   Reason: {completion_data.get('reason', 'no reason provided')}")
+                    print(f"{'='*60}")
+                    
+                    # If sentence is complete, speak it and clear buffer
+                    if completion_data.get('is_complete', False):
+                        # Speak the text only if we haven't spoken this exact input before
+                        if user_input != last_spoken_input:
+                            speak_text(user_input)
+                            last_spoken_input = user_input
                         
+                        # Clear the buffer to allow starting a new sentence
+                        print("✨ Sentence complete! Clearing buffer for new sentence...")
+                        letters_detected = ""
+                
+                except json.JSONDecodeError:
+                    print(f"\n⚠️ Could not parse completion response as JSON: {completion_response}\n")
+                    with status_lock:
+                        sentence_completion_status = {"is_complete": False, "reason": "Parse error"}
+                
             except Exception as e:
                 print(f"\n❌ Error getting LLM response: {e}\n")
         
@@ -245,6 +288,24 @@ def run_sign_language_classifier(config_file='asl.json'):
         # Display detected letters on screen
         cv2.putText(frame, f"Detected: {letters_detected}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2,
                     cv2.LINE_AA)
+        
+        # Display sentence completion status with thread-safe access
+        with status_lock:
+            if sentence_completion_status:  # Check if dict is not empty
+                completion_text = "Complete ✓" if sentence_completion_status.get('is_complete', False) else "Incomplete..."
+                reason = sentence_completion_status.get('reason', 'N/A')
+                
+                # Use different colors based on completion
+                color = (0, 255, 0) if sentence_completion_status.get('is_complete', False) else (255, 255, 0)
+                
+                cv2.putText(frame, f"Status: {completion_text}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
+                            cv2.LINE_AA)
+                
+                # Truncate reason if too long
+                if len(reason) > 50:
+                    reason = reason[:47] + "..."
+                cv2.putText(frame, f"{reason}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
+                            cv2.LINE_AA)
         
         # Display sentence options if in selection mode
         if selection_mode and sentence_options:
