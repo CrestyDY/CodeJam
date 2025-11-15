@@ -51,7 +51,7 @@ with col_main:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
             # Display the frame - large and prominent
-            frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+            frame_placeholder.image(frame_rgb, channels="RGB", width='stretch')
 
             # Auto-refresh to create video effect
             import time
@@ -59,7 +59,7 @@ with col_main:
                 time.sleep(0.03)  # ~30 FPS
                 ret, frame = st.session_state.video_capture.read()
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                frame_placeholder.image(frame_rgb, channels="RGB", width='stretch')
         else:
             frame_placeholder.error("Failed to capture frame from camera.")
             stop_camera()
