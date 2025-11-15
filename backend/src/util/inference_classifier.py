@@ -26,7 +26,7 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
     model_two = model_two_dict['model']  # Two-hand model (84 features)
     
     # Setup camera with higher resolution
-    cap = cv2.VideoCapture(1)
+    cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     
@@ -65,8 +65,6 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
         labels_dict_two = {int(k): v + ' ' for k, v in asl_config_two.items()}
         print(f"Loaded {len(labels_dict_two)} two-hand sign language gestures from {config_file}")
     
-    # Load one-hand gestures (use default_labels if file doesn't exist)
-    labels_dict_one = {0: 'HI ', 1: 'MY ', 2: 'H ', 3: 'E '}  # Default fallback
     CONFIG_PATH_ONE = os.path.join(config_dir, config_file_one_hand)
     try:
         with open(CONFIG_PATH_ONE, 'r') as f:
@@ -302,31 +300,36 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
                             # Check if we're in selection mode
                             if selection_mode and sentence_options:
                                 # Check if it's a selection gesture
+                                # IMPORTANT: Only check for selection gestures in TWO-HAND mode
+                                # (selection gestures are defined in two-hand config)
                                 prediction_id = int(prediction[0])
                                 
                                 # Check if this is a selection gesture
                                 is_selection = False
-                                for select_num, select_id in select_indices.items():
-                                    if prediction_id == select_id:
-                                        selection_index = select_num - 1  # 1->0, 2->1, 3->2
-                                        if selection_index < len(sentence_options):
-                                            selected_sentence = sentence_options[selection_index]
-                                            print(f"\n{'='*60}")
-                                            print(f"✅ Selected option {select_num}: {selected_sentence}")
-                                            print(f"{'='*60}\n")
-                                            
-                                            # Speak the selected sentence in background thread
-                                            def speak_in_background():
-                                                speak_text(selected_sentence)
-                                            threading.Thread(target=speak_in_background, daemon=True).start()
-                                            
-                                            # Exit selection mode and reset detected letters
-                                            selection_mode = False
-                                            sentence_options = []
-                                            letters_detected = ""  # Reset for next gesture sequence
-                                            print("📝 Detected letters reset. Ready for new gesture sequence.\n")
-                                            is_selection = True
-                                            break
+                                
+                                # Only check selection if we're in TWO-HAND mode
+                                if num_hands == 2:
+                                    for select_num, select_id in select_indices.items():
+                                        if prediction_id == select_id:
+                                            selection_index = select_num - 1  # 1->0, 2->1, 3->2
+                                            if selection_index < len(sentence_options):
+                                                selected_sentence = sentence_options[selection_index]
+                                                print(f"\n{'='*60}")
+                                                print(f"✅ Selected option {select_num}: {selected_sentence}")
+                                                print(f"{'='*60}\n")
+                                                
+                                                # Speak the selected sentence in background thread
+                                                def speak_in_background():
+                                                    speak_text(selected_sentence)
+                                                threading.Thread(target=speak_in_background, daemon=True).start()
+                                                
+                                                # Exit selection mode and reset detected letters
+                                                selection_mode = False
+                                                sentence_options = []
+                                                letters_detected = ""  # Reset for next gesture sequence
+                                                print("📝 Detected letters reset. Ready for new gesture sequence.\n")
+                                                is_selection = True
+                                                break
                                 
                                 # If not a selection gesture, treat as normal word in selection mode
                                 if not is_selection:
