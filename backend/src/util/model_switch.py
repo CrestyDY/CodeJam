@@ -12,6 +12,9 @@ model_two_dict = pickle.load(open('models/model_two_hands.p', 'rb'))   # 84-feat
 model_one = model_one_dict['model']
 model_two = model_two_dict['model']
 
+print("model 1 features:", model_one.n_features_in_)
+print("model 2 features:", model_two.n_features_in_)
+
 
 # Set up camera, use 1 or 4 depending on setup(mac/windows)
 cap = cv2.VideoCapture(1)
