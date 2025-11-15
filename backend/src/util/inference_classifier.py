@@ -57,7 +57,16 @@ def run_sign_language_classifier(config_file='asl.json'):
         def thread_target():
             nonlocal sentence_completion_status, last_checked_input, last_spoken_input, letters_detected
             try:
-                # Check if sentence is complete
+                # ALWAYS get response interpretations for every word added
+                response = get_response(user_input)
+                if response:
+                    print(f"\n{'='*60}")
+                    print(f"📝 LLM Response for '{user_input}':")
+                    print(f"{'='*60}")
+                    print(response)
+                    print(f"{'='*60}\n")
+                
+                # Also check if sentence is complete
                 completion_response = check_if_sentence_complete(user_input)
                 
                 # Parse the JSON response
@@ -75,16 +84,8 @@ def run_sign_language_classifier(config_file='asl.json'):
                     print(f"   Reason: {completion_data.get('reason', 'no reason provided')}")
                     print(f"{'='*60}")
                     
-                    # If sentence looks complete, also get the interpretations AND speak it
+                    # If sentence is complete, speak it and clear buffer
                     if completion_data.get('is_complete', False):
-                        response = get_response(user_input)
-                        if response:
-                            print(f"\n{'='*60}")
-                            print(f"📝 LLM Response for '{user_input}':")
-                            print(f"{'='*60}")
-                            print(response)
-                            print(f"{'='*60}\n")
-                        
                         # Speak the text only if we haven't spoken this exact input before
                         if user_input != last_spoken_input:
                             speak_text(user_input)
