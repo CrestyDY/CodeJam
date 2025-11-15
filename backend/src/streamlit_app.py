@@ -9,16 +9,21 @@ st.set_page_config(
     layout="wide"
 )
 
+st.sidebar.markdown("# Settings")
+st.sidebar.checkbox("Flip Camera", value=True, key="flip_camera")
+
 # Initialize session state
 if 'camera_active' not in st.session_state:
     st.session_state.camera_active = False
 if 'video_capture' not in st.session_state:
     st.session_state.video_capture = None
+if 'signs' not in st.session_state:
+    st.session_state.signs = ""
 
 def start_camera():
     """Start the camera capture"""
     if st.session_state.video_capture is None:
-        st.session_state.video_capture = cv2.VideoCapture(0)
+        st.session_state.video_capture = cv2.VideoCapture(st.session_state.camera_index)
         if not st.session_state.video_capture.isOpened():
             st.error("Unable to access camera. Please check your camera permissions.")
             st.session_state.video_capture = None
@@ -40,7 +45,14 @@ with col_main:
     st.title("📹 Video Feed Capture")
     
     # Video display area - takes most of the screen
-    frame_placeholder = st.empty()
+    size = 0.50
+    left, right = st.columns([size, 1 - size])
+    with left:
+        frame_placeholder = st.empty()
+    with right:
+        st.markdown("### Detected Signs")
+        signs_placeholder = st.empty()
+        signs_placeholder.markdown(f"<div style='font-size:24px; border:2px solid black; padding:10px; min-height:100px;'>{st.session_state.signs}</div>", unsafe_allow_html=True)
     
     # Capture and display video frames
     if st.session_state.camera_active and st.session_state.video_capture is not None:
@@ -49,21 +61,33 @@ with col_main:
         if ret:
             # Convert BGR to RGB for Streamlit
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            if st.session_state.flip_camera:
+                frame_rgb = cv2.flip(frame_rgb, 1)  # Mirror the frame for a more natural webcam feel
             
             # Display the frame - large and prominent
             frame_placeholder.image(frame_rgb, channels="RGB", width='stretch')
+            st.session_state.camera_error = False
         else:
+            st.session_state.camera_error = True
             frame_placeholder.error("Failed to capture frame from camera.")
             stop_camera()
     else:
-        frame_placeholder.info("👆 Click 'Start Camera' to begin")
+        frame_placeholder.info("Click 'Start Camera' to begin 👉")
 
 with col_side:
     st.markdown("### Controls")
     
     # Control buttons
-    start_btn = st.button("🎥 Start", type="primary", disabled=st.session_state.camera_active, use_container_width=True)
-    stop_btn = st.button("⏹️ Stop", disabled=not st.session_state.camera_active, use_container_width=True)
+    start_btn = False
+    stop_btn = False
+    if not st.session_state.camera_active:
+        st.info("⚪ Inactive")
+        start_btn = st.button("🎥 Start", type="primary", disabled=st.session_state.camera_active, use_container_width=True)
+        st.number_input("Camera Index", min_value=0, max_value=10, disabled=st.session_state.camera_active, value=0,
+                        step=1, key="camera_index")
+    else:
+        st.success("🟢 Active")
+        stop_btn = st.button("⏹️ Stop", disabled=not st.session_state.camera_active, use_container_width=True)
     
     # Handle button clicks
     if start_btn:
@@ -73,29 +97,6 @@ with col_side:
     if stop_btn:
         stop_camera()
         st.rerun()
-    
-    st.markdown("---")
-    
-    # Status indicator
-    st.markdown("### Status")
-    if st.session_state.camera_active:
-        st.success("🟢 Active")
-    else:
-        st.info("⚪ Inactive")
-    
-    st.markdown("---")
-    
-    # Information section
-    st.markdown("### ℹ️ Info")
-    st.markdown("""
-    This application captures video feed from your webcam.
-    
-    **Instructions:**
-    1. Click "Start" to begin
-    2. Grant camera permissions if prompted
-    3. View your live video feed
-    4. Click "Stop" when done
-    """)
     
     # Frame information (if we have a captured frame)
     if st.session_state.camera_active and st.session_state.video_capture is not None:
@@ -184,7 +185,7 @@ def infer(frame):
                 elapsed_time = time.time() - character_start_time
                 if elapsed_time >= HOLD_DURATION and current_character != previous_detected:
                     # Character held long enough and is different from last added
-                    letters_detected += current_character
+                    st.session_state.signs += current_character
                     previous_detected = current_character
                     print(f"Added '{current_character}' to detected letters: {letters_detected}")
 
@@ -216,5 +217,8 @@ while st.session_state.video_capture is not None:
     time.sleep(0.03)  # ~30 FPS
     ret, frame = st.session_state.video_capture.read()
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    if st.session_state.flip_camera:
+        frame_rgb = cv2.flip(frame_rgb, 1)  # Mirror the frame for a more natural webcam feel
     infer(frame_rgb)
+    signs_placeholder.markdown(f"<div style='font-size:24px; border:2px solid black; padding:10px; min-height:100px;'>{st.session_state.signs}</div>", unsafe_allow_html=True)
     frame_placeholder.image(frame_rgb, channels="RGB", width='stretch')
