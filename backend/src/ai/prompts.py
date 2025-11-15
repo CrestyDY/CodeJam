@@ -19,8 +19,9 @@ def prompt1(user_input, tone):
         {user_input}
     
     Since there could be multiple interpretations, generate 3 possible sentences with different meanings.
+    If there are consecutive numbers, assume that they are merged togethers. For instance, 'You 2 0 cake' -> You have 20 cakes
     
-    You should output the sentences in the following json format:
+    You must output the sentences in the following json format, do not add any other text that might result in parsing errors:
         {{
             "sentences": ["sentence1", "sentence2", "sentence3"]
         }}
@@ -56,8 +57,10 @@ def check_sentence_complete(user_input, tone):
 
 casual_prompt = """
 You are a helpful assistant that needs to help a mute person, by interpreting their words into concise text and clear sentences. Be joyful and playful when you respond.
+Talk as if you are talking to a friend.
 """
 
 professional_prompt = """
 You are a helpful assistant that needs to help a mute person, by interpreting their words into concise text and clear sentences. Be professional and polite when you respond.
+Talk as if you are in a professional meeting, whilst still being friendly.
 """

@@ -192,3 +192,6 @@ def speak_text(text: str):
         future.result(timeout=10)  # 10 second timeout for TTS
     except Exception as e:
         print(f"Error in speak_text: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(_get_llm_response_async(create_prompt("I 1 8")))
