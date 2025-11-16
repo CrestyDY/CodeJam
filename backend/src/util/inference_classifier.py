@@ -30,7 +30,7 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
     model_words_two = model_words_two_dict['model']  # Words two-hands model (84 features)
 
     # Setup camera with higher resolution
-    cap = cv2.VideoCapture(1)
+    cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     
@@ -49,6 +49,9 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
     
     # Mode state: 'default', 'letters', or 'numbers'
     current_mode = 'default'  # Default uses words_one_hand for 1-hand, words_two_hands for 2-hands
+    last_mode_switch_time = 0  # Track when we last switched modes
+    last_mode_switch_gesture = None  # Track which gesture triggered the last switch
+    MODE_SWITCH_COOLDOWN = 1.0  # seconds - prevent rapid mode switching
 
     # Sentence selection state
     sentence_options = []  # List of 3 sentences from LLM
@@ -97,9 +100,9 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
             select_indices[2] = key
         elif value.strip() == "Select 3":
             select_indices[3] = key
-        elif value.strip() == "Letters":
+        elif value.strip() == "Letters - Mode Switch":
             trigger_letters_idx = key
-        elif value.strip() == "Numbers":
+        elif value.strip() == "Numbers - Mode Switch":
             trigger_numbers_idx = key
 
     print(f"Selection gestures mapped: {select_indices}")
@@ -249,18 +252,37 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
                 
                 # Make prediction with one-hand model (42 features) - use appropriate model based on mode
                 if len(data_aux) == 42:
-                    if current_mode == 'letters':
-                        prediction = model_letters.predict([np.asarray(data_aux)])
-                        predicted_character = labels_dict_letters[int(prediction[0])]
-                        mode_text += " - LETTERS"
-                    elif current_mode == 'numbers':
-                        prediction = model_numbers.predict([np.asarray(data_aux)])
-                        predicted_character = labels_dict_numbers[int(prediction[0])]
-                        mode_text += " - NUMBERS"
-                    else:  # default mode
-                        prediction = model_words_one.predict([np.asarray(data_aux)])
-                        predicted_character = labels_dict_words_one[int(prediction[0])]
-                        mode_text += " - WORDS"
+                    try:
+                        if current_mode == 'letters':
+                            prediction = model_letters.predict([np.asarray(data_aux)])
+                            pred_idx = int(prediction[0])
+                            if pred_idx in labels_dict_letters:
+                                predicted_character = labels_dict_letters[pred_idx]
+                                mode_text += " - LETTERS"
+                            else:
+                                cv2.putText(frame, f"Unknown letter gesture (idx: {pred_idx})", (10, 90), 
+                                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+                        elif current_mode == 'numbers':
+                            prediction = model_numbers.predict([np.asarray(data_aux)])
+                            pred_idx = int(prediction[0])
+                            if pred_idx in labels_dict_numbers:
+                                predicted_character = labels_dict_numbers[pred_idx]
+                                mode_text += " - NUMBERS"
+                            else:
+                                cv2.putText(frame, f"Unknown number gesture (idx: {pred_idx})", (10, 90), 
+                                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+                        else:  # default mode
+                            prediction = model_words_one.predict([np.asarray(data_aux)])
+                            pred_idx = int(prediction[0])
+                            if pred_idx in labels_dict_words_one:
+                                predicted_character = labels_dict_words_one[pred_idx]
+                                mode_text += " - WORDS"
+                            else:
+                                cv2.putText(frame, f"Unknown word gesture (idx: {pred_idx})", (10, 90), 
+                                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+                    except Exception as e:
+                        cv2.putText(frame, f"Prediction error: {str(e)}", (10, 90), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
                 else:
                     cv2.putText(frame, f"Error: {len(data_aux)} features (need 42)", (10, 90), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
@@ -309,9 +331,18 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
                 
                 # Make prediction using combined features (84 features: 42 per hand)
                 if len(data_aux) == 84:
-                    prediction = model_words_two.predict([np.asarray(data_aux)])
-                    predicted_character = labels_dict_words_two[int(prediction[0])]
-                    mode_text += " - WORDS"
+                    try:
+                        prediction = model_words_two.predict([np.asarray(data_aux)])
+                        pred_idx = int(prediction[0])
+                        if pred_idx in labels_dict_words_two:
+                            predicted_character = labels_dict_words_two[pred_idx]
+                            mode_text += " - WORDS"
+                        else:
+                            cv2.putText(frame, f"Unknown two-hand gesture (idx: {pred_idx})", (10, 90), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+                    except Exception as e:
+                        cv2.putText(frame, f"Prediction error: {str(e)}", (10, 90), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
                 else:
                     cv2.putText(frame, f"Error: {len(data_aux)} features (need 84)", (10, 90), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
@@ -330,29 +361,59 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
                         if elapsed_time >= HOLD_DURATION and current_character != previous_detected:
                             previous_detected = current_character
                             
-                            # Check if this is a mode trigger (only for two-hand gestures)
+                            # Check if this is a special gesture (mode trigger or selection) for two-hand gestures
                             if num_hands == 2:
                                 prediction_id = int(prediction[0])
-
+                                current_time = time.time()
+                                
+                                # Check if it's a Select 1/2/3 gesture - NEVER add these to text
+                                if prediction_id in select_indices.values():
+                                    # Only process if we're actually in selection mode with options
+                                    if not (selection_mode and sentence_options):
+                                        print(f"⚠️ Select gesture shown but no sentence options available (ignored)")
+                                        continue  # Skip adding to text
+                                
                                 # Check if Letters trigger (index 3)
                                 if prediction_id == trigger_letters_idx:
+                                    # Skip if we just switched with this same gesture
+                                    if last_mode_switch_gesture == prediction_id:
+                                        # Check cooldown to prevent rapid switching
+                                        if current_time - last_mode_switch_time < MODE_SWITCH_COOLDOWN:
+                                            print(f"⏳ Mode switch cooldown: {MODE_SWITCH_COOLDOWN - (current_time - last_mode_switch_time):.1f}s remaining")
+                                            continue  # Skip processing this gesture
+                                    
+                                    # Cooldown passed or different gesture, allow switch
+                                    last_mode_switch_time = current_time
+                                    last_mode_switch_gesture = prediction_id
                                     if current_mode == 'letters':
                                         current_mode = 'default'
                                         print(f"\n🔄 Switched to DEFAULT mode (words)\n")
                                     else:
                                         current_mode = 'letters'
                                         print(f"\n🔄 Switched to LETTERS mode\n")
-                                    continue  # Don't add trigger to detected letters
+                                    previous_detected = current_character  # Prevent re-triggering this gesture
+                                    continue  # Skip adding mode switch gesture to text
 
                                 # Check if Numbers trigger (index 4)
                                 elif prediction_id == trigger_numbers_idx:
+                                    # Skip if we just switched with this same gesture
+                                    if last_mode_switch_gesture == prediction_id:
+                                        # Check cooldown to prevent rapid switching
+                                        if current_time - last_mode_switch_time < MODE_SWITCH_COOLDOWN:
+                                            print(f"⏳ Mode switch cooldown: {MODE_SWITCH_COOLDOWN - (current_time - last_mode_switch_time):.1f}s remaining")
+                                            continue  # Skip processing this gesture
+                                    
+                                    # Cooldown passed or different gesture, allow switch
+                                    last_mode_switch_time = current_time
+                                    last_mode_switch_gesture = prediction_id
                                     if current_mode == 'numbers':
                                         current_mode = 'default'
                                         print(f"\n🔄 Switched to DEFAULT mode (words)\n")
                                     else:
                                         current_mode = 'numbers'
                                         print(f"\n🔄 Switched to NUMBERS mode\n")
-                                    continue  # Don't add trigger to detected letters
+                                    previous_detected = current_character  # Prevent re-triggering this gesture
+                                    continue  # Skip adding mode switch gesture to text
 
                             # Check if we're in selection mode
                             if selection_mode and sentence_options:
@@ -379,6 +440,7 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
                                             selection_mode = False
                                             sentence_options = []
                                             letters_detected = ""  # Reset for next gesture sequence
+                                            previous_detected = ""  # Reset to allow immediate next gesture
                                             print("📝 Detected letters reset. Ready for new gesture sequence.\n")
                                             is_selection = True
                                             break
@@ -392,6 +454,9 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
                                     sentence_options = []
                                     # Run LLM call with new accumulated text
                                     run_llm_in_background(letters_detected)
+                                else:
+                                    # Selection was made, skip rest of processing
+                                    continue
                             else:
                                 # Normal mode: add character to detected letters
                                 letters_detected += current_character
