@@ -82,7 +82,7 @@ except FileNotFoundError:
 dataset_size = args.dataset_size
 
 # Setup camera
-cap = cv2.VideoCapture(args.camera)
+cap = cv2.VideoCapture(1)
 
 # ========== MEDIAPIPE SETUP ==========
 mp_hands = mp.solutions.hands
