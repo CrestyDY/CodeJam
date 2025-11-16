@@ -9,7 +9,7 @@ import threading
 from src.ai.get_llm_response import get_response, speak_text
 
 
-def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='asl_one_hand.json'):
+def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_file_one_hand='asl_words_one_hand.json'):
     """
     Run the sign language to text classifier with auto-switching between one-hand and two-hand models
     
@@ -373,32 +373,36 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
                             # Check if we're in selection mode
                             if selection_mode and sentence_options:
                                 # Check if it's a selection gesture
+                                # IMPORTANT: Only check for selection gestures in TWO-HAND mode
+                                # (selection gestures are defined in two-hand config)
                                 prediction_id = int(prediction[0])
                                 
                                 # Check if this is a selection gesture
                                 is_selection = False
-                                for select_num, select_id in select_indices.items():
-                                    if prediction_id == select_id:
-                                        selection_index = select_num - 1  # 1->0, 2->1, 3->2
-                                        if selection_index < len(sentence_options):
-                                            selected_sentence = sentence_options[selection_index]
-                                            print(f"\n{'='*60}")
-                                            print(f"✅ Selected option {select_num}: {selected_sentence}")
-                                            print(f"{'='*60}\n")
-                                            
-                                            # Speak the selected sentence in background thread
-                                            def speak_in_background():
-                                                speak_text(selected_sentence)
-                                            threading.Thread(target=speak_in_background, daemon=True).start()
-                                            
-                                            # Exit selection mode and reset detected letters
-                                            selection_mode = False
-                                            sentence_options = []
-                                            letters_detected = ""  # Reset for next gesture sequence
-                                            previous_detected = ""  # Reset to allow immediate next gesture
-                                            print("📝 Detected letters reset. Ready for new gesture sequence.\n")
-                                            is_selection = True
-                                            break
+                                
+                                # Only check selection if we're in TWO-HAND mode
+                                if num_hands == 2:
+                                    for select_num, select_id in select_indices.items():
+                                        if prediction_id == select_id:
+                                            selection_index = select_num - 1  # 1->0, 2->1, 3->2
+                                            if selection_index < len(sentence_options):
+                                                selected_sentence = sentence_options[selection_index]
+                                                print(f"\n{'='*60}")
+                                                print(f"✅ Selected option {select_num}: {selected_sentence}")
+                                                print(f"{'='*60}\n")
+                                                
+                                                # Speak the selected sentence in background thread
+                                                def speak_in_background():
+                                                    speak_text(selected_sentence)
+                                                threading.Thread(target=speak_in_background, daemon=True).start()
+                                                
+                                                # Exit selection mode and reset detected letters
+                                                selection_mode = False
+                                                sentence_options = []
+                                                letters_detected = ""  # Reset for next gesture sequence
+                                                print("📝 Detected letters reset. Ready for new gesture sequence.\n")
+                                                is_selection = True
+                                                break
                                 
                                 # If not a selection gesture, treat as normal word in selection mode
                                 if not is_selection:
@@ -504,3 +508,4 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
 # Main entry point
 if __name__ == "__main__":
     run_sign_language_classifier()
+

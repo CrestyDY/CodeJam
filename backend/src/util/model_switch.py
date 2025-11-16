@@ -16,7 +16,7 @@ print("model 1 features:", model_one.n_features_in_)
 print("model 2 features:", model_two.n_features_in_)
 
 
-# Set up camera, use 1 or 4 depending on setup(mac/windows)
+# Set up camera, use 0, 1 or 4 depending on setup(Windows, Mac or Linux)
 cap = cv2.VideoCapture(0)
 
 #setup mediapipe
