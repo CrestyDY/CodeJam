@@ -3,7 +3,7 @@ import asyncio
 import threading
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-from src.ai.prompts import prompt1, check_sentence_complete, casual_prompt
+from ai.prompts import prompt1, check_sentence_complete, casual_prompt
 from pathlib import Path
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
