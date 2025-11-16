@@ -1,10 +1,10 @@
 .idea
 .venv
-backend/etc/.env
-backend/src/util/data
+etc/.env
+src/util/data
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .DS_Store
-backend/src/ai/speech.mp3
+src/ai/speech.mp3
