@@ -542,7 +542,7 @@ def handle_connect():
 @socketio.on('start_camera')
 def handle_start_camera():
     if not state.camera_active:
-        state.video_capture = cv2.VideoCapture(state.camera_index)
+        state.video_capture = cv2.VideoCapture(1)
         if state.video_capture.isOpened():
             state.camera_active = True
             emit('camera_status', {'active': True}, broadcast=True)
