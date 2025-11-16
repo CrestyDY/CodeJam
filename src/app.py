@@ -11,7 +11,7 @@ import sys
 import traceback
 import argparse
 from ai.get_llm_response import _get_llm_response_async
-from ai.prompts import prompt1, casual_prompt
+from ai.prompts import prompt1, casual_prompt, voice_prompt
 from threading import Thread, Lock
 from flask import Flask, render_template, jsonify, send_file, after_this_request
 from flask_socketio import SocketIO, emit
@@ -124,8 +124,9 @@ def generate_audio(audio_id=None, selected_sentence=None):
                 client = OpenAI(api_key=api_key)
                 response = client.audio.speech.create(
                     model="tts-1",
-                    voice="alloy",
-                    input=selected_sentence
+                    voice="ash",
+                    input=selected_sentence,
+                    instructions=voice_prompt
                 )
                 response.stream_to_file(audio_path)
                 print(f"Audio generated with OpenAI TTS: {audio_filename}")
