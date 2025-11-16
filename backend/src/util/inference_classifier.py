@@ -9,7 +9,7 @@ import threading
 from src.ai.get_llm_response import get_response, check_if_sentence_complete, speak_text
 
 
-def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='asl_one_hand.json'):
+def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_file_one_hand='asl_words_one_hand.json'):
     """
     Run the sign language to text classifier with auto-switching between one-hand and two-hand models
     
@@ -26,7 +26,7 @@ def run_sign_language_classifier(config_file='asl.json', config_file_one_hand='a
     model_two = model_two_dict['model']  # Two-hand model (84 features)
     
     # Setup camera with higher resolution
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(4)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     
