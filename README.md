@@ -1,5 +1,7 @@
 # SIGNificant
 
+![SIGNificant Logo: Hands form the ASL letters for SIGN](https://github.com/CrestyDY/CodeJam/blob/main/significant-logo.png?raw=true)
+
 SIGNificant bridges the communication gap between people with vocal disabilities and the world around them by making sign language easier to understand.
 
 ## Features
