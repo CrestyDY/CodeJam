@@ -193,17 +193,17 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    LETTERS_DIR = os.path.join(BASE_DIR, "letters")
-    NUMBERS_DIR = os.path.join(BASE_DIR, "numbers")
-    WORDS_ONE_HAND_DIR = os.path.join(BASE_DIR, "words_one_hand")
-    WORDS_TWO_HANDS_DIR = os.path.join(BASE_DIR, "words_two_hands")
+    LETTERS_DIR = os.path.join(BASE_DIR, "asl_letters")
+    NUMBERS_DIR = os.path.join(BASE_DIR, "asl_numbers")
+    WORDS_ONE_HAND_DIR = os.path.join(BASE_DIR, "asl_words_one_hand")
+    WORDS_TWO_HANDS_DIR = os.path.join(BASE_DIR, "asl_words_two_hands")
 
     # Build datasets based on mode
     if args.mode in ["letters", "all"]:
         print(f"\n=== Building LETTERS dataset from {LETTERS_DIR} ===")
         data_letters, labels_letters = build_dataset_one_hand(LETTERS_DIR)
         if data_letters:
-            save_dataset(data_letters, labels_letters, "letters_data.pickle")
+            save_dataset(data_letters, labels_letters, os.path.join(BASE_DIR, "letters_data.pickle"))
         else:
             print("[LETTERS] No data collected. Check your directory and images.")
 
@@ -211,7 +211,7 @@ if __name__ == "__main__":
         print(f"\n=== Building NUMBERS dataset from {NUMBERS_DIR} ===")
         data_numbers, labels_numbers = build_dataset_one_hand(NUMBERS_DIR)
         if data_numbers:
-            save_dataset(data_numbers, labels_numbers, "numbers_data.pickle")
+            save_dataset(data_numbers, labels_numbers, os.path.join(BASE_DIR, "numbers_data.pickle"))
         else:
             print("[NUMBERS] No data collected. Check your directory and images.")
 
@@ -219,7 +219,7 @@ if __name__ == "__main__":
         print(f"\n=== Building WORDS (ONE-HAND) dataset from {WORDS_ONE_HAND_DIR} ===")
         data_words_one_hand, labels_words_one_hand = build_dataset_one_hand(WORDS_ONE_HAND_DIR)
         if data_words_one_hand:
-            save_dataset(data_words_one_hand, labels_words_one_hand, "words_one_hand_data.pickle")
+            save_dataset(data_words_one_hand, labels_words_one_hand, os.path.join(BASE_DIR, "words_one_hand_data.pickle"))
         else:
             print("[WORDS ONE-HAND] No data collected. Check your directory and images.")
 
@@ -227,7 +227,7 @@ if __name__ == "__main__":
         print(f"\n=== Building WORDS (TWO-HANDS) dataset from {WORDS_TWO_HANDS_DIR} ===")
         data_words_two_hands, labels_words_two_hands = build_dataset_two_hands(WORDS_TWO_HANDS_DIR)
         if data_words_two_hands:
-            save_dataset(data_words_two_hands, labels_words_two_hands, "words_two_hands_data.pickle")
+            save_dataset(data_words_two_hands, labels_words_two_hands, os.path.join(BASE_DIR, "words_two_hands_data.pickle"))
         else:
             print("[WORDS TWO-HANDS] No data collected. Check your directory and images.")
 

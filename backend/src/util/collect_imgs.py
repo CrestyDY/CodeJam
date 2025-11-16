@@ -32,25 +32,25 @@ MODE_CONFIG = {
         'hands': 1,
         'name': 'LETTERS (one-hand)',
         'config': 'asl_letters.json',
-        'output_dir': 'letters'
+        'output_dir': 'asl_letters'
     },
     'numbers': {
         'hands': 1,
         'name': 'NUMBERS (one-hand)',
         'config': 'asl_numbers.json',
-        'output_dir': 'numbers'
+        'output_dir': 'asl_numbers'
     },
     'words_one_hand': {
         'hands': 1,
         'name': 'WORDS (one-hand)',
         'config': 'asl_words_one_hand.json',
-        'output_dir': 'words_one_hand'
+        'output_dir': 'asl_words_one_hand'
     },
     'words_two_hands': {
         'hands': 2,
         'name': 'WORDS (two-hands)',
         'config': 'asl_words_two_hands.json',
-        'output_dir': 'words_two_hands'
+        'output_dir': 'asl_words_two_hands'
     }
 }
 
