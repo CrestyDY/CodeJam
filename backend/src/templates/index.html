@@ -325,7 +325,6 @@
                 <button id="startBtn">Start Camera</button>
                 <button id="stopBtn" class="danger" style="display: none;">Stop Camera</button>
                 <button id="clearBtn" class="secondary">Clear All</button>
-                <button id="getSuggestionsBtn" class="secondary">Get Suggestions</button>
             </div>
 
             <!-- Detected Signs -->
@@ -372,7 +371,6 @@
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const clearBtn = document.getElementById('clearBtn');
-        const getSuggestionsBtn = document.getElementById('getSuggestionsBtn');
         const modeSelect = document.getElementById('modeSelect');
         const detectedText = document.getElementById('detectedText');
         const suggestionsContainer = document.getElementById('suggestionsContainer');
@@ -380,6 +378,9 @@
         const selectedText = document.getElementById('selectedText');
         const modeNotification = document.getElementById('modeNotification');
         const modeNotificationText = document.getElementById('modeNotificationText');
+        
+        // Audio element for playing speech
+        const audio = new Audio();
 
         // Socket event handlers
         socket.on('connect', () => {
@@ -412,6 +413,13 @@
             setTimeout(() => {
                 selectedContainer.style.display = 'none';
             }, 5000);
+        });
+
+        socket.on('audio_ready', (data) => {
+            // Play the newly generated audio file
+            console.log('Audio ready, playing:', data.audio_id);
+            audio.src = '/audio/' + data.audio_id;
+            audio.play().catch(err => console.log('Audio playback failed:', err));
         });
 
         socket.on('llm_status', (data) => {
@@ -462,10 +470,6 @@
             socket.emit('clear_all');
             selectedContainer.style.display = 'none';
             modeNotification.style.display = 'none';
-        });
-
-        getSuggestionsBtn.addEventListener('click', () => {
-            socket.emit('get_suggestions');
         });
 
         modeSelect.addEventListener('change', (e) => {

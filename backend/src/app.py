@@ -313,6 +313,57 @@ def process_video():
                                                 print(f"✅ Selected option {select_num}: {selected_sentence}")
                                                 print(f"{'='*60}\n")
                                                 
+                                                # Generate audio in background thread
+                                                audio_id = str(time.time()).replace('.', '_')
+                                                
+                                                def generate_audio():
+                                                    try:
+                                                        script_dir = os.path.dirname(os.path.abspath(__file__))
+                                                        audio_filename = f'speech_{audio_id}.mp3'
+                                                        audio_path = os.path.join(script_dir, 'ai', audio_filename)
+                                                        
+                                                        # Use OpenAI TTS API directly (no local app)
+                                                        try:
+                                                            from openai import OpenAI
+                                                            from pathlib import Path
+                                                            
+                                                            # Get API key from environment
+                                                            import os as os_module
+                                                            from dotenv import load_dotenv
+                                                            env_path = os_module.path.join(script_dir, '..', 'etc', '.env')
+                                                            load_dotenv(dotenv_path=env_path)
+                                                            api_key = os_module.getenv("OPENAI_API_KEY")
+                                                            
+                                                            if api_key:
+                                                                client = OpenAI(api_key=api_key)
+                                                                response = client.audio.speech.create(
+                                                                    model="tts-1",
+                                                                    voice="alloy",
+                                                                    input=selected_sentence
+                                                                )
+                                                                response.stream_to_file(audio_path)
+                                                                print(f"✅ Audio generated with OpenAI TTS: {audio_filename}")
+                                                            else:
+                                                                raise ValueError("OpenAI API key not found")
+                                                        except Exception as openai_error:
+                                                            print(f"⚠️ OpenAI TTS failed, trying gTTS: {openai_error}")
+                                                            # Fallback: create speech using gTTS
+                                                            from gtts import gTTS
+                                                            tts = gTTS(text=selected_sentence, lang='en')
+                                                            tts.save(audio_path)
+                                                            print(f"✅ Audio generated with gTTS: {audio_filename}")
+                                                        
+                                                        # Notify client that audio is ready
+                                                        socketio.emit('audio_ready', {'audio_id': audio_id})
+                                                        
+                                                    except Exception as e:
+                                                        print(f"⚠️ Audio generation failed: {e}")
+                                                        import traceback
+                                                        traceback.print_exc()
+                                                
+                                                audio_thread = Thread(target=generate_audio, daemon=True)
+                                                audio_thread.start()
+                                                
                                                 # Clear detected signs and suggestions
                                                 letters_detected = ""
                                                 with state.lock:
@@ -428,6 +479,37 @@ def process_video():
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/audio/<audio_id>')
+def serve_audio(audio_id):
+    """Serve the generated speech audio file and delete it after sending"""
+    from flask import send_file, after_this_request
+    
+    script_dir = os.path.dirname(__file__)
+    audio_filename = f'speech_{audio_id}.mp3'
+    audio_path = os.path.join(script_dir, 'ai', audio_filename)
+    
+    if os.path.exists(audio_path):
+        @after_this_request
+        def cleanup(response):
+            """Delete the audio file after the response is sent"""
+            try:
+                # Schedule deletion after a short delay to ensure file is fully sent
+                def delayed_delete():
+                    time.sleep(0.5)
+                    if os.path.exists(audio_path):
+                        os.remove(audio_path)
+                        print(f"🗑️ Deleted audio file: {audio_filename}")
+                
+                cleanup_thread = Thread(target=delayed_delete, daemon=True)
+                cleanup_thread.start()
+            except Exception as e:
+                print(f"⚠️ Error cleaning up audio file: {e}")
+            return response
+        
+        return send_file(audio_path, mimetype='audio/mpeg')
+    else:
+        return jsonify({'error': 'Audio file not found'}), 404
 
 @app.route('/api/state', methods=['GET'])
 def get_state():
