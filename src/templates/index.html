@@ -330,7 +330,7 @@
             <!-- Detected Signs -->
             <h2>Detected Signs</h2>
             <div class="detected-box">
-                <div class="detected-text" id="detectedText">Start signing...</div>
+                <div class="detected-text" id="detectedText">Start Gesturing...</div>
             </div>
 
             <!-- Selected Sentence -->
@@ -397,7 +397,7 @@
         });
 
         socket.on('detected_update', (data) => {
-            detectedText.textContent = data.text || 'Start signing...';
+            detectedText.textContent = data.text || 'Start Gesturing...';
         });
 
         socket.on('suggestions_update', (data) => {
@@ -485,7 +485,7 @@
         socket.on('state_update', (data) => {
             cameraActive = data.camera_active;
             currentMode = data.current_mode;
-            detectedText.textContent = data.detected_signs || 'Start signing...';
+            detectedText.textContent = data.detected_signs || 'Start Gesturing...';
             if (data.suggestions && data.suggestions.length > 0) {
                 renderSuggestions(data.suggestions);
             }
