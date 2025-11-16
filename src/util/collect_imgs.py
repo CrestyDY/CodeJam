@@ -142,7 +142,7 @@ for j in range(START_AT, number_of_classes):
         msg = f'Class {j}: "{class_label}" | {MODE_NAME} MODE'
         cv2.putText(display_frame, msg, (40, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
-        msg2 = f'Press "Q" to start capturing'
+        msg2 = 'Press "Q" to start capturing'
         cv2.putText(display_frame, msg2, (40, 70),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2, cv2.LINE_AA)
         cv2.imshow('frame', display_frame)
@@ -223,7 +223,7 @@ cap.release()
 cv2.destroyAllWindows()
 
 print(f"\n{'='*60}")
-print(f"Data collection complete!")
+print("Data collection complete!")
 print(f"Mode: {MODE_NAME}")
 print(f"Output directory: {output_root}")
 print(f"Total classes: {number_of_classes}")

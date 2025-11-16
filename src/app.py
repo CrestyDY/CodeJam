@@ -1,5 +1,3 @@
-from flask import Flask, render_template, Response, jsonify, request
-from flask_socketio import SocketIO, emit
 import cv2
 import numpy as np
 import time
@@ -8,8 +6,25 @@ import mediapipe as mp
 import os
 import json
 import asyncio
-from threading import Thread, Lock
 import base64
+import sys
+import traceback
+import argparse
+from ai.get_llm_response import _get_llm_response_async
+from ai.prompts import prompt1, casual_prompt
+from threading import Thread, Lock
+from flask import Flask, render_template, jsonify, send_file, after_this_request
+from flask_socketio import SocketIO, emit
+from openai import OpenAI
+
+# Get API key from environment
+import os as os_module
+from dotenv import load_dotenv
+
+script_dir = os.path.dirname(__file__)
+env_path = os_module.path.join(script_dir, '..', 'etc', '.env')
+load_dotenv(dotenv_path=env_path)
+api_key = os_module.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'sign-language-interpreter-secret'
@@ -32,7 +47,6 @@ state = AppState()
 
 # Load models
 def load_models():
-    script_dir = os.path.dirname(__file__)
     model_letters_dict = pickle.load(open(os.path.join(script_dir, 'util', 'models', 'model_letters.p'), 'rb'))
     model_numbers_dict = pickle.load(open(os.path.join(script_dir, 'util', 'models', 'model_numbers.p'), 'rb'))
     model_words_one_dict = pickle.load(open(os.path.join(script_dir, 'util', 'models', 'model_words_one_hand.p'), 'rb'))
@@ -108,15 +122,11 @@ def get_llm_suggestions(user_input):
     
     def run_async():
         try:
-            # Import with proper module path handling
-            import sys
             script_dir = os.path.dirname(os.path.abspath(__file__))
             parent_dir = os.path.dirname(script_dir)
             if parent_dir not in sys.path:
                 sys.path.insert(0, parent_dir)
-            
-            from ai.get_llm_response import _get_llm_response_async
-            from ai.prompts import prompt1, casual_prompt
+
             
             # Create new event loop for this thread
             loop = asyncio.new_event_loop()
@@ -140,7 +150,6 @@ def get_llm_suggestions(user_input):
                 socketio.emit('suggestions_update', {'suggestions': state.suggestions})
         except Exception as e:
             print(f"Error getting LLM response: {e}")
-            import traceback
             traceback.print_exc()
             with state.lock:
                 state.suggestions = [f"Error: {str(e)}"]
@@ -310,7 +319,7 @@ def process_video():
                                             if selection_index < len(state.suggestions):
                                                 selected_sentence = state.suggestions[selection_index]
                                                 print(f"\n{'='*60}")
-                                                print(f"✅ Selected option {select_num}: {selected_sentence}")
+                                                print(f"Selected option {select_num}: {selected_sentence}")
                                                 print(f"{'='*60}\n")
                                                 
                                                 # Generate audio in background thread
@@ -324,15 +333,6 @@ def process_video():
                                                         
                                                         # Use OpenAI TTS API directly (no local app)
                                                         try:
-                                                            from openai import OpenAI
-                                                            from pathlib import Path
-                                                            
-                                                            # Get API key from environment
-                                                            import os as os_module
-                                                            from dotenv import load_dotenv
-                                                            env_path = os_module.path.join(script_dir, '..', 'etc', '.env')
-                                                            load_dotenv(dotenv_path=env_path)
-                                                            api_key = os_module.getenv("OPENAI_API_KEY")
                                                             
                                                             if api_key:
                                                                 client = OpenAI(api_key=api_key)
@@ -342,23 +342,17 @@ def process_video():
                                                                     input=selected_sentence
                                                                 )
                                                                 response.stream_to_file(audio_path)
-                                                                print(f"✅ Audio generated with OpenAI TTS: {audio_filename}")
+                                                                print(f"Audio generated with OpenAI TTS: {audio_filename}")
                                                             else:
                                                                 raise ValueError("OpenAI API key not found")
                                                         except Exception as openai_error:
-                                                            print(f"⚠️ OpenAI TTS failed, trying gTTS: {openai_error}")
-                                                            # Fallback: create speech using gTTS
-                                                            from gtts import gTTS
-                                                            tts = gTTS(text=selected_sentence, lang='en')
-                                                            tts.save(audio_path)
-                                                            print(f"✅ Audio generated with gTTS: {audio_filename}")
+                                                            print(f"OpenAI TTS failed: {openai_error}")
                                                         
                                                         # Notify client that audio is ready
                                                         socketio.emit('audio_ready', {'audio_id': audio_id})
                                                         
                                                     except Exception as e:
-                                                        print(f"⚠️ Audio generation failed: {e}")
-                                                        import traceback
+                                                        print(f"Audio generation failed: {e}")
                                                         traceback.print_exc()
                                                 
                                                 audio_thread = Thread(target=generate_audio, daemon=True)
@@ -375,11 +369,11 @@ def process_video():
                                                 socketio.emit('suggestions_update', {'suggestions': []})
                                                 socketio.emit('selection_made', {'text': selected_sentence})
                                                 
-                                                print("📝 Detected letters reset. Ready for new gesture sequence.\n")
+                                                print("Detected letters reset. Ready for new gesture sequence.\n")
                                                 is_special_gesture = True
                                                 break
                                         else:
-                                            print(f"⚠️ Select gesture shown but no suggestions available (ignored)")
+                                            print("Select gesture shown but no suggestions available (ignored)")
                                             is_special_gesture = True
                                             break
                                 
@@ -389,7 +383,7 @@ def process_video():
                                     if last_mode_switch_gesture == prediction_id:
                                         # Check cooldown to prevent rapid switching
                                         if current_time - last_mode_switch_time < MODE_SWITCH_COOLDOWN:
-                                            print(f"⏳ Mode switch cooldown: {MODE_SWITCH_COOLDOWN - (current_time - last_mode_switch_time):.1f}s remaining")
+                                            print(f"Mode switch cooldown: {MODE_SWITCH_COOLDOWN - (current_time - last_mode_switch_time):.1f}s remaining")
                                             is_special_gesture = True
                                     
                                     if not is_special_gesture:
@@ -398,10 +392,10 @@ def process_video():
                                         last_mode_switch_gesture = prediction_id
                                         if state.current_mode == 'letters':
                                             state.current_mode = 'default'
-                                            print(f"\n🔄 Switched to DEFAULT mode (words)\n")
+                                            print("Switched to DEFAULT mode (words)\n")
                                         else:
                                             state.current_mode = 'letters'
-                                            print(f"\n🔄 Switched to LETTERS mode\n")
+                                            print("Switched to LETTERS mode\n")
                                         
                                         # Emit mode update
                                         socketio.emit('mode_update', {'mode': state.current_mode})
@@ -415,7 +409,7 @@ def process_video():
                                     if last_mode_switch_gesture == prediction_id:
                                         # Check cooldown to prevent rapid switching
                                         if current_time - last_mode_switch_time < MODE_SWITCH_COOLDOWN:
-                                            print(f"⏳ Mode switch cooldown: {MODE_SWITCH_COOLDOWN - (current_time - last_mode_switch_time):.1f}s remaining")
+                                            print(f"Mode switch cooldown: {MODE_SWITCH_COOLDOWN - (current_time - last_mode_switch_time):.1f}s remaining")
                                             is_special_gesture = True
                                     
                                     if not is_special_gesture:
@@ -424,10 +418,10 @@ def process_video():
                                         last_mode_switch_gesture = prediction_id
                                         if state.current_mode == 'numbers':
                                             state.current_mode = 'default'
-                                            print(f"\n🔄 Switched to DEFAULT mode (words)\n")
+                                            print("\nSwitched to DEFAULT mode (words)\n")
                                         else:
                                             state.current_mode = 'numbers'
-                                            print(f"\n🔄 Switched to NUMBERS mode\n")
+                                            print("\nSwitched to NUMBERS mode\n")
                                         
                                         # Emit mode update
                                         socketio.emit('mode_update', {'mode': state.current_mode})
@@ -483,7 +477,6 @@ def index():
 @app.route('/audio/<audio_id>')
 def serve_audio(audio_id):
     """Serve the generated speech audio file and delete it after sending"""
-    from flask import send_file, after_this_request, make_response
     
     script_dir = os.path.dirname(__file__)
     audio_filename = f'speech_{audio_id}.mp3'
@@ -505,12 +498,12 @@ def serve_audio(audio_id):
                     time.sleep(0.5)
                     if os.path.exists(audio_path):
                         os.remove(audio_path)
-                        print(f"🗑️ Deleted audio file: {audio_filename}")
+                        print(f"Deleted audio file: {audio_filename}")
                 
                 cleanup_thread = Thread(target=delayed_delete, daemon=True)
                 cleanup_thread.start()
             except Exception as e:
-                print(f"⚠️ Error cleaning up audio file: {e}")
+                print(f"Error cleaning up audio file: {e}")
             return response
         
         return send_file(audio_path, mimetype='audio/mpeg', as_attachment=False)
@@ -542,7 +535,7 @@ def handle_connect():
 @socketio.on('start_camera')
 def handle_start_camera():
     if not state.camera_active:
-        state.video_capture = cv2.VideoCapture(1)
+        state.video_capture = cv2.VideoCapture(state.camera_index)
         if state.video_capture.isOpened():
             state.camera_active = True
             emit('camera_status', {'active': True}, broadcast=True)
@@ -580,4 +573,8 @@ def handle_get_suggestions():
         get_llm_suggestions(state.detected_signs)
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Sign Language Interpreter Web App')
+    parser.add_argument('--camera', type=int, default=0, help='Camera index (default: 0)')
+    args = parser.parse_args()
+    state.camera_index = args.camera
     socketio.run(app, host='0.0.0.0', port=8000, debug=True, allow_unsafe_werkzeug=True)
