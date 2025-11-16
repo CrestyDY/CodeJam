@@ -6,11 +6,11 @@ import argparse
 import mediapipe as mp
 
 # ========== ARGUMENT PARSING ==========
-parser = argparse.ArgumentParser(description='Collect ASL gesture images for training')
-parser.add_argument('mode', choices=['one', 'two'], 
-                    help='Collection mode: "one" for one-hand gestures, "two" for two-hand gestures')
+parser = argparse.ArgumentParser(description='Collect ASL gesture images for training (4-model system)')
+parser.add_argument('mode', choices=['letters', 'numbers', 'words_one_hand', 'words_two_hands'],
+                    help='Collection mode: "letters" (one-hand A-Z), "numbers" (one-hand 1-10), "words_one_hand" (one-hand words), "words_two_hands" (two-hand words)')
 parser.add_argument('--config', type=str, default=None,
-                    help='Path to custom config file (default: asl_one_hand.json for one, asl.json for two)')
+                    help='Path to custom config file (default: auto-selected based on mode)')
 parser.add_argument('--camera', type=int, default=1,
                     help='Camera index (default: 1)')
 parser.add_argument('--start-at', type=int, default=0,
@@ -25,18 +25,45 @@ BASE_DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
 
 # Determine mode and config
 MODE = args.mode
-REQUIRED_HANDS = 1 if MODE == 'one' else 2
-MODE_NAME = "ONE-HAND" if MODE == 'one' else "TWO-HAND"
+
+# Map mode to required hands and config file
+MODE_CONFIG = {
+    'letters': {
+        'hands': 1,
+        'name': 'LETTERS (one-hand)',
+        'config': 'asl_letters.json',
+        'output_dir': 'asl_letters'
+    },
+    'numbers': {
+        'hands': 1,
+        'name': 'NUMBERS (one-hand)',
+        'config': 'asl_numbers.json',
+        'output_dir': 'asl_numbers'
+    },
+    'words_one_hand': {
+        'hands': 1,
+        'name': 'WORDS (one-hand)',
+        'config': 'asl_words_one_hand.json',
+        'output_dir': 'asl_words_one_hand'
+    },
+    'words_two_hands': {
+        'hands': 2,
+        'name': 'WORDS (two-hands)',
+        'config': 'asl_words_two_hands.json',
+        'output_dir': 'asl_words_two_hands'
+    }
+}
+
+REQUIRED_HANDS = MODE_CONFIG[MODE]['hands']
+MODE_NAME = MODE_CONFIG[MODE]['name']
+OUTPUT_DIR_NAME = MODE_CONFIG[MODE]['output_dir']
 START_AT = args.start_at
 
 # Set default config based on mode
 if args.config:
     CONFIG_PATH = args.config
 else:
-    if MODE == 'one':
-        CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'asl_one_hand.json')
-    else:
-        CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'asl.json')
+    CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', MODE_CONFIG[MODE]['config'])
 
 if not os.path.exists(BASE_DATA_DIR):
     os.makedirs(BASE_DATA_DIR)
@@ -72,10 +99,7 @@ hands = mp_hands.Hands(
 # ========== DIRECTORY SETUP ==========
 
 # Determine output directory based on mode
-if MODE == 'one':
-    output_root = os.path.join(BASE_DATA_DIR, "one_hand")
-else:
-    output_root = os.path.join(BASE_DATA_DIR, "two_hands")
+output_root = os.path.join(BASE_DATA_DIR, OUTPUT_DIR_NAME)
 
 os.makedirs(output_root, exist_ok=True)
 

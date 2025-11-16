@@ -6,7 +6,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import threading
-from src.ai.get_llm_response import get_response, check_if_sentence_complete, speak_text
+from src.ai.get_llm_response import get_response, speak_text
 
 
 def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_file_one_hand='asl_words_one_hand.json'):
@@ -17,16 +17,20 @@ def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_
         config_file (str): Name of the JSON config file containing two-hand gesture mappings (default: 'asl.json')
         config_file_one_hand (str): Name of the JSON config file containing one-hand gesture mappings (default: 'asl_one_hand.json')
     """
-    # Load both trained models
+    # Load all 4 trained models
     script_dir = os.path.dirname(__file__)
-    model_one_dict = pickle.load(open(os.path.join(script_dir, 'models', 'model_one_hand.p'), 'rb'))
-    model_two_dict = pickle.load(open(os.path.join(script_dir, 'models', 'model_two_hands.p'), 'rb'))
-    
-    model_one = model_one_dict['model']  # One-hand model (42 features)
-    model_two = model_two_dict['model']  # Two-hand model (84 features)
-    
+    model_letters_dict = pickle.load(open(os.path.join(script_dir, 'models', 'model_letters.p'), 'rb'))
+    model_numbers_dict = pickle.load(open(os.path.join(script_dir, 'models', 'model_numbers.p'), 'rb'))
+    model_words_one_dict = pickle.load(open(os.path.join(script_dir, 'models', 'model_words_one_hand.p'), 'rb'))
+    model_words_two_dict = pickle.load(open(os.path.join(script_dir, 'models', 'model_words_two_hands.p'), 'rb'))
+
+    model_letters = model_letters_dict['model']  # Letters model (42 features, one-hand)
+    model_numbers = model_numbers_dict['model']  # Numbers model (42 features, one-hand)
+    model_words_one = model_words_one_dict['model']  # Words one-hand model (42 features)
+    model_words_two = model_words_two_dict['model']  # Words two-hands model (84 features)
+
     # Setup camera with higher resolution
-    cap = cv2.VideoCapture(4)
+    cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     
@@ -43,59 +47,71 @@ def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_
     character_start_time = None
     HOLD_DURATION = 1.5  # seconds - adjust this value to change how long to hold
     
+    # Mode state: 'default', 'letters', or 'numbers'
+    current_mode = 'default'  # Default uses words_one_hand for 1-hand, words_two_hands for 2-hands
+    last_mode_switch_time = 0  # Track when we last switched modes
+    last_mode_switch_gesture = None  # Track which gesture triggered the last switch
+    MODE_SWITCH_COOLDOWN = 1.0  # seconds - prevent rapid mode switching
+
     # Sentence selection state
     sentence_options = []  # List of 3 sentences from LLM
     selected_sentence = ""  # The sentence chosen by the user
     selection_mode = False  # Whether we're in sentence selection mode
     
-    # Sentence completion tracking
-    sentence_completion_status = {}  # Initialize as empty dict
-    last_checked_input = ""  # Track what we last checked
-    last_spoken_input = ""  # Track what we last spoke to avoid repeating
-    status_lock = threading.Lock()  # Thread lock for safe access
-    
     # Load ASL word mappings from config files
     config_dir = os.path.join(os.path.dirname(__file__), '..', 'config')
     
-    # Load two-hand gestures
-    CONFIG_PATH_TWO = os.path.join(config_dir, config_file)
-    with open(CONFIG_PATH_TWO, 'r') as f:
-        asl_config_two = json.load(f)
-        # Convert string keys to integers and add space after each word
-        labels_dict_two = {int(k): v + ' ' for k, v in asl_config_two.items()}
-        print(f"Loaded {len(labels_dict_two)} two-hand sign language gestures from {config_file}")
-    
-    CONFIG_PATH_ONE = os.path.join(config_dir, config_file_one_hand)
-    try:
-        with open(CONFIG_PATH_ONE, 'r') as f:
-            asl_config_one = json.load(f)
-            labels_dict_one = {int(k): v + ' ' for k, v in asl_config_one.items()}
-            print(f"Loaded {len(labels_dict_one)} one-hand sign language gestures from {config_file_one_hand}")
-    except FileNotFoundError:
-        print(f"Warning: {config_file_one_hand} not found, using default one-hand labels")
-    
-    # Find indices for selection gestures dynamically (check both dictionaries)
+    # Load all 4 config files
+    with open(os.path.join(config_dir, 'asl_letters.json'), 'r') as f:
+        asl_config_letters = json.load(f)
+        labels_dict_letters = {int(k): v + ' ' for k, v in asl_config_letters.items()}
+        print(f"Loaded {len(labels_dict_letters)} letters from asl_letters.json")
+
+    with open(os.path.join(config_dir, 'asl_numbers.json'), 'r') as f:
+        asl_config_numbers = json.load(f)
+        labels_dict_numbers = {int(k): v + ' ' for k, v in asl_config_numbers.items()}
+        print(f"Loaded {len(labels_dict_numbers)} numbers from asl_numbers.json")
+
+    with open(os.path.join(config_dir, 'asl_words_one_hand.json'), 'r') as f:
+        asl_config_words_one = json.load(f)
+        labels_dict_words_one = {int(k): v + ' ' for k, v in asl_config_words_one.items()}
+        print(f"Loaded {len(labels_dict_words_one)} one-hand words from asl_words_one_hand.json")
+
+    with open(os.path.join(config_dir, 'asl_words_two_hands.json'), 'r') as f:
+        asl_config_words_two = json.load(f)
+        labels_dict_words_two = {int(k): v + ' ' for k, v in asl_config_words_two.items()}
+        print(f"Loaded {len(labels_dict_words_two)} two-hand words from asl_words_two_hands.json")
+
+    # Find indices for selection gestures and mode triggers in two-hands config
     select_indices = {}
-    for key, value in labels_dict_two.items():
+    trigger_letters_idx = None
+    trigger_numbers_idx = None
+
+    for key, value in labels_dict_words_two.items():
         if value.strip() == "Select 1":
             select_indices[1] = key
         elif value.strip() == "Select 2":
             select_indices[2] = key
         elif value.strip() == "Select 3":
             select_indices[3] = key
+        elif value.strip() == "Letters - Mode Switch":
+            trigger_letters_idx = key
+        elif value.strip() == "Numbers - Mode Switch":
+            trigger_numbers_idx = key
+
     print(f"Selection gestures mapped: {select_indices}")
-    
+    print(f"Letters trigger index: {trigger_letters_idx}")
+    print(f"Numbers trigger index: {trigger_numbers_idx}")
+
     def run_llm_in_background(user_input):
         """Run the LLM call in a separate thread to avoid blocking the video feed"""
-        nonlocal sentence_completion_status, last_checked_input, last_spoken_input, letters_detected
         nonlocal sentence_options, selection_mode, selected_sentence
         
         def thread_target():
-            nonlocal sentence_completion_status, last_checked_input, last_spoken_input, letters_detected
             nonlocal sentence_options, selection_mode, selected_sentence
             
             try:
-                # ALWAYS get response interpretations for every word added
+                # Get response interpretations for every word added
                 response = get_response(user_input)
                 if response:
                     print(f"\n{'='*60}")
@@ -119,43 +135,6 @@ def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_
                         sentence_options = []
                         selection_mode = False
                 
-                # Also check if sentence is complete
-                completion_response = check_if_sentence_complete(user_input)
-                
-                # Parse the completion JSON response
-                try:
-                    completion_data = json.loads(completion_response)
-                    
-                    # Thread-safe update
-                    with status_lock:
-                        sentence_completion_status = completion_data
-                        last_checked_input = user_input
-                    
-                    print(f"\n{'='*60}")
-                    print(f"🔍 Sentence Completion Check for '{user_input}':")
-                    print(f"   Complete: {completion_data.get('is_complete', 'unknown')}")
-                    print(f"   Reason: {completion_data.get('reason', 'no reason provided')}")
-                    print(f"{'='*60}")
-                    
-                    # If sentence is complete, speak it and clear buffer
-                    if completion_data.get('is_complete', False):
-                        # Speak the text only if we haven't spoken this exact input before
-                        if user_input != last_spoken_input:
-                            # Speak in a separate thread to avoid any blocking
-                            def speak_completion():
-                                speak_text(user_input)
-                            threading.Thread(target=speak_completion, daemon=True).start()
-                            last_spoken_input = user_input
-                        
-                        # Clear the buffer to allow starting a new sentence
-                        print("✨ Sentence complete! Clearing buffer for new sentence...")
-                        letters_detected = ""
-                
-                except json.JSONDecodeError:
-                    print(f"\n⚠️ Could not parse completion response as JSON: {completion_response}\n")
-                    with status_lock:
-                        sentence_completion_status = {"is_complete": False, "reason": "Parse error"}
-                
             except Exception as e:
                 print(f"\n❌ Error getting LLM response: {e}\n")
         
@@ -178,6 +157,7 @@ def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_
         results = hands.process(frame_rgb)
         
         predicted_character = None
+        prediction = None
         x1 = y1 = x2 = y2 = None
         mode_text = ""
         num_hands = len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0
@@ -225,10 +205,39 @@ def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_
                 x2 = int(max(x_) * W) + 10
                 y2 = int(max(y_) * H) + 10
                 
-                # Make prediction with one-hand model (42 features)
+                # Make prediction with one-hand model (42 features) - use appropriate model based on mode
                 if len(data_aux) == 42:
-                    prediction = model_one.predict([np.asarray(data_aux)])
-                    predicted_character = labels_dict_one[int(prediction[0])]
+                    try:
+                        if current_mode == 'letters':
+                            prediction = model_letters.predict([np.asarray(data_aux)])
+                            pred_idx = int(prediction[0])
+                            if pred_idx in labels_dict_letters:
+                                predicted_character = labels_dict_letters[pred_idx]
+                                mode_text += " - LETTERS"
+                            else:
+                                cv2.putText(frame, f"Unknown letter gesture (idx: {pred_idx})", (10, 90), 
+                                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+                        elif current_mode == 'numbers':
+                            prediction = model_numbers.predict([np.asarray(data_aux)])
+                            pred_idx = int(prediction[0])
+                            if pred_idx in labels_dict_numbers:
+                                predicted_character = labels_dict_numbers[pred_idx]
+                                mode_text += " - NUMBERS"
+                            else:
+                                cv2.putText(frame, f"Unknown number gesture (idx: {pred_idx})", (10, 90), 
+                                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+                        else:  # default mode
+                            prediction = model_words_one.predict([np.asarray(data_aux)])
+                            pred_idx = int(prediction[0])
+                            if pred_idx in labels_dict_words_one:
+                                predicted_character = labels_dict_words_one[pred_idx]
+                                mode_text += " - WORDS"
+                            else:
+                                cv2.putText(frame, f"Unknown word gesture (idx: {pred_idx})", (10, 90), 
+                                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+                    except Exception as e:
+                        cv2.putText(frame, f"Prediction error: {str(e)}", (10, 90), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
                 else:
                     cv2.putText(frame, f"Error: {len(data_aux)} features (need 42)", (10, 90), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
@@ -277,8 +286,18 @@ def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_
                 
                 # Make prediction using combined features (84 features: 42 per hand)
                 if len(data_aux) == 84:
-                    prediction = model_two.predict([np.asarray(data_aux)])
-                    predicted_character = labels_dict_two[int(prediction[0])]
+                    try:
+                        prediction = model_words_two.predict([np.asarray(data_aux)])
+                        pred_idx = int(prediction[0])
+                        if pred_idx in labels_dict_words_two:
+                            predicted_character = labels_dict_words_two[pred_idx]
+                            mode_text += " - WORDS"
+                        else:
+                            cv2.putText(frame, f"Unknown two-hand gesture (idx: {pred_idx})", (10, 90), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+                    except Exception as e:
+                        cv2.putText(frame, f"Prediction error: {str(e)}", (10, 90), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
                 else:
                     cv2.putText(frame, f"Error: {len(data_aux)} features (need 84)", (10, 90), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
@@ -297,6 +316,60 @@ def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_
                         if elapsed_time >= HOLD_DURATION and current_character != previous_detected:
                             previous_detected = current_character
                             
+                            # Check if this is a special gesture (mode trigger or selection) for two-hand gestures
+                            if num_hands == 2:
+                                prediction_id = int(prediction[0])
+                                current_time = time.time()
+                                
+                                # Check if it's a Select 1/2/3 gesture - NEVER add these to text
+                                if prediction_id in select_indices.values():
+                                    # Only process if we're actually in selection mode with options
+                                    if not (selection_mode and sentence_options):
+                                        print(f"⚠️ Select gesture shown but no sentence options available (ignored)")
+                                        continue  # Skip adding to text
+                                
+                                # Check if Letters trigger (index 3)
+                                if prediction_id == trigger_letters_idx:
+                                    # Skip if we just switched with this same gesture
+                                    if last_mode_switch_gesture == prediction_id:
+                                        # Check cooldown to prevent rapid switching
+                                        if current_time - last_mode_switch_time < MODE_SWITCH_COOLDOWN:
+                                            print(f"⏳ Mode switch cooldown: {MODE_SWITCH_COOLDOWN - (current_time - last_mode_switch_time):.1f}s remaining")
+                                            continue  # Skip processing this gesture
+                                    
+                                    # Cooldown passed or different gesture, allow switch
+                                    last_mode_switch_time = current_time
+                                    last_mode_switch_gesture = prediction_id
+                                    if current_mode == 'letters':
+                                        current_mode = 'default'
+                                        print(f"\n🔄 Switched to DEFAULT mode (words)\n")
+                                    else:
+                                        current_mode = 'letters'
+                                        print(f"\n🔄 Switched to LETTERS mode\n")
+                                    previous_detected = current_character  # Prevent re-triggering this gesture
+                                    continue  # Skip adding mode switch gesture to text
+
+                                # Check if Numbers trigger (index 4)
+                                elif prediction_id == trigger_numbers_idx:
+                                    # Skip if we just switched with this same gesture
+                                    if last_mode_switch_gesture == prediction_id:
+                                        # Check cooldown to prevent rapid switching
+                                        if current_time - last_mode_switch_time < MODE_SWITCH_COOLDOWN:
+                                            print(f"⏳ Mode switch cooldown: {MODE_SWITCH_COOLDOWN - (current_time - last_mode_switch_time):.1f}s remaining")
+                                            continue  # Skip processing this gesture
+                                    
+                                    # Cooldown passed or different gesture, allow switch
+                                    last_mode_switch_time = current_time
+                                    last_mode_switch_gesture = prediction_id
+                                    if current_mode == 'numbers':
+                                        current_mode = 'default'
+                                        print(f"\n🔄 Switched to DEFAULT mode (words)\n")
+                                    else:
+                                        current_mode = 'numbers'
+                                        print(f"\n🔄 Switched to NUMBERS mode\n")
+                                    previous_detected = current_character  # Prevent re-triggering this gesture
+                                    continue  # Skip adding mode switch gesture to text
+
                             # Check if we're in selection mode
                             if selection_mode and sentence_options:
                                 # Check if it's a selection gesture
@@ -340,6 +413,9 @@ def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_
                                     sentence_options = []
                                     # Run LLM call with new accumulated text
                                     run_llm_in_background(letters_detected)
+                                else:
+                                    # Selection was made, skip rest of processing
+                                    continue
                             else:
                                 # Normal mode: add character to detected letters
                                 letters_detected += current_character
@@ -397,24 +473,6 @@ def run_sign_language_classifier(config_file='asl_words_two_hands.json', config_
         # Display detected letters on screen
         cv2.putText(frame, f"Detected: {letters_detected}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2,
                     cv2.LINE_AA)
-        
-        # Display sentence completion status with thread-safe access
-        with status_lock:
-            if sentence_completion_status:  # Check if dict is not empty
-                completion_text = "Complete ✓" if sentence_completion_status.get('is_complete', False) else "Incomplete..."
-                reason = sentence_completion_status.get('reason', 'N/A')
-                
-                # Use different colors based on completion
-                color = (0, 255, 0) if sentence_completion_status.get('is_complete', False) else (255, 255, 0)
-                
-                cv2.putText(frame, f"Status: {completion_text}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
-                            cv2.LINE_AA)
-                
-                # Truncate reason if too long
-                if len(reason) > 50:
-                    reason = reason[:47] + "..."
-                cv2.putText(frame, f"{reason}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
-                            cv2.LINE_AA)
         
         # Display sentence options if in selection mode
         if selection_mode and sentence_options:
