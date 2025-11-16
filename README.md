@@ -23,9 +23,14 @@ SIGNIFICANT bridges the communication gap between people with vocal disabilities
 
 2. Create a virtual environment and install uv for package management:
    ```bash
-   python -m venv venv
+   python -m venv .venv
+   source .venv/bin/activate # Linux
+   .venv/Scripts/activate # Windows
+   # Sorry mac users
    pip install uv
    ```
+
+
 
 3. Install dependencies:
    ```bash
