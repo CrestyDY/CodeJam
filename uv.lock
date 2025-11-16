@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.9"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'darwin'",
@@ -448,7 +448,9 @@ requires-dist = [
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "flake8", marker = "extra == 'dev'" },
     { name = "flask", specifier = ">=3.0.0" },
+    { name = "flask", specifier = ">=3.1.2" },
     { name = "flask-socketio", specifier = ">=5.3.0" },
+    { name = "flask-socketio", specifier = ">=5.5.1" },
     { name = "isort", marker = "extra == 'dev'" },
     { name = "mediapipe", specifier = ">=0.10.21" },
     { name = "mypy", marker = "extra == 'dev'" },
@@ -457,6 +459,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "python-socketio", specifier = ">=5.11.0" },
+    { name = "python-socketio", specifier = ">=5.14.3" },
     { name = "scikit-learn", specifier = ">=1.6.1" },
     { name = "streamlit", specifier = ">=1.28.0" },
     { name = "toll", specifier = ">=4.2.1" },

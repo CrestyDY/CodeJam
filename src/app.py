@@ -483,7 +483,7 @@ def index():
 @app.route('/audio/<audio_id>')
 def serve_audio(audio_id):
     """Serve the generated speech audio file and delete it after sending"""
-    from flask import send_file, after_this_request
+    from flask import send_file, after_this_request, make_response
     
     script_dir = os.path.dirname(__file__)
     audio_filename = f'speech_{audio_id}.mp3'
@@ -494,6 +494,12 @@ def serve_audio(audio_id):
         def cleanup(response):
             """Delete the audio file after the response is sent"""
             try:
+                # Add headers for Safari/Mac compatibility
+                response.headers['Accept-Ranges'] = 'bytes'
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                response.headers['Pragma'] = 'no-cache'
+                response.headers['Expires'] = '0'
+                
                 # Schedule deletion after a short delay to ensure file is fully sent
                 def delayed_delete():
                     time.sleep(0.5)
@@ -507,7 +513,7 @@ def serve_audio(audio_id):
                 print(f"⚠️ Error cleaning up audio file: {e}")
             return response
         
-        return send_file(audio_path, mimetype='audio/mpeg')
+        return send_file(audio_path, mimetype='audio/mpeg', as_attachment=False)
     else:
         return jsonify({'error': 'Audio file not found'}), 404
 
