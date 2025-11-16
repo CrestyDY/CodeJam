@@ -41,6 +41,7 @@ class AppState:
         self.flip_camera = True
         self.camera_index = 0
         self.llm_processing = False
+        self.clear_buffer = False
         self.lock = Lock()
 
 state = AppState()
@@ -110,6 +111,43 @@ mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 hands = mp_hands.Hands(static_image_mode=True, min_detection_confidence=0.3, max_num_hands=2)
 
+def generate_audio(audio_id=None, selected_sentence=None):
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        audio_filename = f'speech_{audio_id}.mp3'
+        audio_path = os.path.join(script_dir, 'ai', audio_filename)
+
+        # Use OpenAI TTS API directly (no local app)
+        try:
+
+            if api_key:
+                client = OpenAI(api_key=api_key)
+                response = client.audio.speech.create(
+                    model="tts-1",
+                    voice="alloy",
+                    input=selected_sentence
+                )
+                response.stream_to_file(audio_path)
+                print(f"Audio generated with OpenAI TTS: {audio_filename}")
+            else:
+                raise ValueError("OpenAI API key not found")
+        except Exception as openai_error:
+            print(f"OpenAI TTS failed: {openai_error}")
+
+        # Notify client that audio is ready
+        socketio.emit('audio_ready', {'audio_id': audio_id})
+
+    except Exception as e:
+        print(f"Audio generation failed: {e}")
+        traceback.print_exc()
+
+# Schedule deletion after a short delay to ensure file is fully sent
+def delayed_delete(audio_path, audio_filename):
+    time.sleep(0.5)
+    if os.path.exists(audio_path):
+        os.remove(audio_path)
+        print(f"Deleted audio file: {audio_filename}")
+
 # Helper function to get LLM response
 def get_llm_suggestions(user_input):
     """Get suggestions from LLM in background thread"""
@@ -122,7 +160,6 @@ def get_llm_suggestions(user_input):
     
     def run_async():
         try:
-            script_dir = os.path.dirname(os.path.abspath(__file__))
             parent_dir = os.path.dirname(script_dir)
             if parent_dir not in sys.path:
                 sys.path.insert(0, parent_dir)
@@ -178,6 +215,17 @@ def process_video():
     MODE_SWITCH_COOLDOWN = 1.0
     
     while state.camera_active and state.video_capture:
+        # Check if we need to clear the buffer
+        if state.clear_buffer:
+            letters_detected = ""
+            previous_detected = ""
+            current_character = ""
+            character_start_time = None
+            with state.lock:
+                state.clear_buffer = False
+            print("OpenCV buffer cleared")
+
+
         ret, frame = state.video_capture.read()
         if not ret:
             break
@@ -324,38 +372,9 @@ def process_video():
                                                 
                                                 # Generate audio in background thread
                                                 audio_id = str(time.time()).replace('.', '_')
-                                                
-                                                def generate_audio():
-                                                    try:
-                                                        script_dir = os.path.dirname(os.path.abspath(__file__))
-                                                        audio_filename = f'speech_{audio_id}.mp3'
-                                                        audio_path = os.path.join(script_dir, 'ai', audio_filename)
-                                                        
-                                                        # Use OpenAI TTS API directly (no local app)
-                                                        try:
-                                                            
-                                                            if api_key:
-                                                                client = OpenAI(api_key=api_key)
-                                                                response = client.audio.speech.create(
-                                                                    model="tts-1",
-                                                                    voice="alloy",
-                                                                    input=selected_sentence
-                                                                )
-                                                                response.stream_to_file(audio_path)
-                                                                print(f"Audio generated with OpenAI TTS: {audio_filename}")
-                                                            else:
-                                                                raise ValueError("OpenAI API key not found")
-                                                        except Exception as openai_error:
-                                                            print(f"OpenAI TTS failed: {openai_error}")
-                                                        
-                                                        # Notify client that audio is ready
-                                                        socketio.emit('audio_ready', {'audio_id': audio_id})
-                                                        
-                                                    except Exception as e:
-                                                        print(f"Audio generation failed: {e}")
-                                                        traceback.print_exc()
-                                                
-                                                audio_thread = Thread(target=generate_audio, daemon=True)
+
+                                                audio_thread = Thread(target=generate_audio,
+                                                                      args=(audio_id, selected_sentence), daemon=True)
                                                 audio_thread.start()
                                                 
                                                 # Clear detected signs and suggestions
@@ -492,15 +511,8 @@ def serve_audio(audio_id):
                 response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
                 response.headers['Pragma'] = 'no-cache'
                 response.headers['Expires'] = '0'
-                
-                # Schedule deletion after a short delay to ensure file is fully sent
-                def delayed_delete():
-                    time.sleep(0.5)
-                    if os.path.exists(audio_path):
-                        os.remove(audio_path)
-                        print(f"Deleted audio file: {audio_filename}")
-                
-                cleanup_thread = Thread(target=delayed_delete, daemon=True)
+
+                cleanup_thread = Thread(target=delayed_delete, args=(audio_path, audio_filename), daemon=True)
                 cleanup_thread.start()
             except Exception as e:
                 print(f"Error cleaning up audio file: {e}")
@@ -559,6 +571,7 @@ def handle_clear_all():
     with state.lock:
         state.detected_signs = ""
         state.suggestions = []
+        state.clear_buffer = True  # Signal the process_video thread to clear its local buffer
     emit('detected_update', {'text': ''}, broadcast=True)
     emit('suggestions_update', {'suggestions': []}, broadcast=True)
 
