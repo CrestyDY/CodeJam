@@ -419,7 +419,42 @@
             // Play the newly generated audio file
             console.log('Audio ready, playing:', data.audio_id);
             audio.src = '/audio/' + data.audio_id;
-            audio.play().catch(err => console.log('Audio playback failed:', err));
+            
+            // Try to play audio with better error handling for Mac/Safari
+            const playPromise = audio.play();
+            
+            if (playPromise !== undefined) {
+                playPromise
+                    .then(() => {
+                        console.log('Audio playing successfully');
+                    })
+                    .catch(err => {
+                        console.error('Audio playback failed:', err.message);
+                        
+                        // If autoplay is blocked, show a notification
+                        if (err.name === 'NotAllowedError') {
+                            console.warn('Autoplay blocked - user interaction required');
+                            // Create a temporary play button
+                            const playBtn = document.createElement('button');
+                            playBtn.textContent = '🔊 Click to hear audio';
+                            playBtn.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10000; padding: 20px 40px; font-size: 18px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; cursor: pointer; box-shadow: 0 10px 30px rgba(0,0,0,0.5);';
+                            
+                            playBtn.onclick = () => {
+                                audio.play();
+                                document.body.removeChild(playBtn);
+                            };
+                            
+                            document.body.appendChild(playBtn);
+                            
+                            // Auto-remove after 5 seconds
+                            setTimeout(() => {
+                                if (document.body.contains(playBtn)) {
+                                    document.body.removeChild(playBtn);
+                                }
+                            }, 5000);
+                        }
+                    });
+            }
         });
 
         socket.on('llm_status', (data) => {
@@ -460,6 +495,16 @@
         // Button handlers
         startBtn.addEventListener('click', () => {
             socket.emit('start_camera');
+            
+            // Unlock audio on Mac/Safari by attempting to play silence
+            // This enables future audio playback
+            audio.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAADhAC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAUHAAAAAAAAAOGAL8QAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sQZDwP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+            audio.play().then(() => {
+                audio.pause();
+                console.log('Audio unlocked for Mac/Safari');
+            }).catch(() => {
+                console.log('Audio unlock not needed or failed');
+            });
         });
 
         stopBtn.addEventListener('click', () => {
